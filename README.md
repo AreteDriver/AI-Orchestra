@@ -102,6 +102,8 @@ Documentation at **http://localhost:8000/docs**
 
 ## 🎯 Example Workflows
 
+These examples show how to execute workflows via the API or dashboard. Each example includes the workflow ID and required variables.
+
 ### 1. Simple AI Completion
 Generate text using OpenAI's GPT models.
 

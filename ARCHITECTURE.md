@@ -71,6 +71,7 @@ The heart of the system, responsible for executing multi-step workflows.
 #### Workflow Model
 
 ```python
+# Conceptual model - actual implementation uses Pydantic BaseModel
 class WorkflowStep:
     step_id: str           # Unique identifier
     step_type: str         # API client type (openai, github, etc.)

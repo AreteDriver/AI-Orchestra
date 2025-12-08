@@ -52,10 +52,11 @@ pytest tests/unit/test_workflow_engine.py
 ### Run with Coverage
 
 ```bash
+# Run with coverage (adjust package path as needed)
 pytest --cov=src/test_ai --cov-report=html
-```
 
-View coverage report at `htmlcov/index.html`
+# View coverage report at htmlcov/index.html
+```
 
 ### Run with Verbose Output
 
@@ -69,33 +70,40 @@ pytest -v
 
 ```python
 # tests/unit/test_workflow_engine.py
+# Note: This is example code showing the testing pattern.
+# Actual imports should match your implementation.
+
 import pytest
-from test_ai import WorkflowEngine, Workflow, WorkflowStep
+# Example imports - adjust based on actual implementation
+# from test_ai import WorkflowEngine, Workflow, WorkflowStep
 
 
 def test_workflow_execution():
     """Test basic workflow execution.
     
-    Note: This is example code. Actual implementation may vary.
+    This example demonstrates the testing pattern.
+    Adjust imports and assertions based on actual implementation.
     """
-    engine = WorkflowEngine()
-    
-    workflow = Workflow(
-        workflow_id="test",
-        name="Test Workflow",
-        description="Test",
-        steps=[
-            WorkflowStep(
-                step_id="step1",
-                step_type="openai",
-                action="generate_completion",
-                parameters={"prompt": "test"}
-            )
-        ]
-    )
-    
-    result = engine.execute_workflow(workflow)
-    assert result.success is True
+    # Example test code
+    # engine = WorkflowEngine()
+    # 
+    # workflow = Workflow(
+    #     workflow_id="test",
+    #     name="Test Workflow",
+    #     description="Test",
+    #     steps=[
+    #         WorkflowStep(
+    #             step_id="step1",
+    #             step_type="openai",
+    #             action="generate_completion",
+    #             parameters={"prompt": "test"}
+    #         )
+    #     ]
+    # )
+    # 
+    # result = engine.execute_workflow(workflow)
+    # assert result.success is True
+    pass
 ```
 
 ### Integration Test Example
