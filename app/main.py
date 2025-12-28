@@ -59,7 +59,11 @@ async def health():
     return {"status": "ok"}
 
 
-@app.post("/generate", response_model=GenerateResponse, dependencies=[Depends(require_api_key)])
+@app.post(
+    "/generate",
+    response_model=GenerateResponse,
+    dependencies=[Depends(require_api_key)],
+)
 async def generate(req: GenerateRequest):
     if not AI_API_KEY:
         raise HTTPException(status_code=500, detail="AI_API_KEY not configured")
@@ -68,7 +72,9 @@ async def generate(req: GenerateRequest):
     payload = {"prompt": req.prompt, "max_tokens": req.max_tokens}
     async with httpx.AsyncClient(timeout=30.0) as client:
         # Replace URL with your AI provider endpoint
-        r = await client.post("https://api.example-ai.com/v1/generate", json=payload, headers=headers)
+        r = await client.post(
+            "https://api.example-ai.com/v1/generate", json=payload, headers=headers
+        )
         if r.status_code != 200:
             raise HTTPException(status_code=502, detail="AI provider error")
         data = r.json()
@@ -81,16 +87,28 @@ async def send_email(req: SendEmailRequest):
     from_addr = req.from_email or SMTP_USER
     if not all([SMTP_HOST, SMTP_USER, SMTP_PASS]):
         raise HTTPException(status_code=500, detail="SMTP not configured")
-    message = f"From: {from_addr}\r\nTo: {req.to}\r\nSubject: {req.subject}\r\n\r\n{req.body}"
+    message = (
+        f"From: {from_addr}\r\nTo: {req.to}\r\nSubject: {req.subject}\r\n\r\n{req.body}"
+    )
     try:
-        await aiosmtplib.send(message, hostname=SMTP_HOST, port=SMTP_PORT,
-                             username=SMTP_USER, password=SMTP_PASS, start_tls=True)
+        await aiosmtplib.send(
+            message,
+            hostname=SMTP_HOST,
+            port=SMTP_PORT,
+            username=SMTP_USER,
+            password=SMTP_PASS,
+            start_tls=True,
+        )
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"SMTP send error: {e}")
     return {"status": "sent"}
 
 
-@app.get("/fetch-emails", response_model=List[EmailPreview], dependencies=[Depends(require_api_key)])
+@app.get(
+    "/fetch-emails",
+    response_model=List[EmailPreview],
+    dependencies=[Depends(require_api_key)],
+)
 async def fetch_emails(limit: int = 10):
     if not all([IMAP_HOST, IMAP_USER, IMAP_PASS]):
         raise HTTPException(status_code=500, detail="IMAP not configured")
@@ -135,11 +153,21 @@ def _fetch_emails_sync(limit: int = 10):
             if msg.is_multipart():
                 for part in msg.walk():
                     if part.get_content_type() == "text/plain":
-                        snippet = part.get_payload(decode=True)[:200].decode(errors="ignore")
+                        snippet = part.get_payload(decode=True)[:200].decode(
+                            errors="ignore"
+                        )
                         break
             else:
                 snippet = msg.get_payload(decode=True)[:200].decode(errors="ignore")
-            previews.append({"uid": uid.decode(), "from_": from_, "subject": subj, "snippet": snippet, "date": date})
+            previews.append(
+                {
+                    "uid": uid.decode(),
+                    "from_": from_,
+                    "subject": subj,
+                    "snippet": snippet,
+                    "date": date,
+                }
+            )
         mail.logout()
     except Exception:
         pass
