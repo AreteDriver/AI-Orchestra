@@ -1,11 +1,10 @@
 """Streamlit dashboard for AI Workflow Orchestrator."""
 import json
 import streamlit as st
-from datetime import datetime
 
 from test_ai.orchestrator import WorkflowEngine, Workflow, WorkflowStep, StepType
 from test_ai.prompts import PromptTemplateManager, PromptTemplate
-from test_ai.api_clients import OpenAIClient, GitHubClient, NotionClientWrapper
+from test_ai.api_clients import OpenAIClient
 
 
 # Initialize components
@@ -137,7 +136,7 @@ def render_workflows_page():
             
             col1, col2 = st.columns(2)
             with col1:
-                step_id = st.text_input(f"Step ID", key=f"step_id_{i}", value=f"step_{i+1}")
+                step_id = st.text_input("Step ID", key=f"step_id_{i}", value=f"step_{i+1}")
                 step_type = st.selectbox(
                     "Step Type",
                     [st.value for st in StepType],

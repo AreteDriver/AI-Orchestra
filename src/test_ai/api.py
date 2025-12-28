@@ -1,10 +1,9 @@
 """FastAPI backend for AI Workflow Orchestrator."""
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 from fastapi import FastAPI, HTTPException, Header
 from pydantic import BaseModel
 
-from test_ai.config import get_settings
 from test_ai.auth import create_access_token, verify_token
 from test_ai.orchestrator import WorkflowEngine, Workflow
 from test_ai.prompts import PromptTemplateManager, PromptTemplate

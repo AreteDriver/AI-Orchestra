@@ -1,7 +1,5 @@
 """Test basic functionality of the AI Workflow Orchestrator."""
 import os
-import tempfile
-from pathlib import Path
 
 # Set up a test environment
 os.environ["OPENAI_API_KEY"] = "test-key"
