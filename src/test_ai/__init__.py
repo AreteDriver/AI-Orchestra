@@ -6,6 +6,20 @@ from .config import Settings, get_settings
 from .orchestrator import WorkflowEngine, Workflow, WorkflowStep, WorkflowResult
 from .prompts import PromptTemplateManager, PromptTemplate
 from .auth import TokenAuth, create_access_token, verify_token
+from .scheduler import (
+    ScheduleManager,
+    WorkflowSchedule,
+    ScheduleType,
+    ScheduleStatus,
+    CronConfig,
+    IntervalConfig,
+)
+from .webhooks import (
+    WebhookManager,
+    Webhook,
+    WebhookStatus,
+    PayloadMapping,
+)
 
 __all__ = [
     "Settings",
@@ -19,4 +33,14 @@ __all__ = [
     "TokenAuth",
     "create_access_token",
     "verify_token",
+    "ScheduleManager",
+    "WorkflowSchedule",
+    "ScheduleType",
+    "ScheduleStatus",
+    "CronConfig",
+    "IntervalConfig",
+    "WebhookManager",
+    "Webhook",
+    "WebhookStatus",
+    "PayloadMapping",
 ]

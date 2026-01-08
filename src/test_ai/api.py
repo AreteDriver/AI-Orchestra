@@ -1,16 +1,38 @@
 """FastAPI backend for AI Workflow Orchestrator."""
 
+from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Dict, Optional
-from fastapi import FastAPI, HTTPException, Header
+from fastapi import FastAPI, HTTPException, Header, Request
 from pydantic import BaseModel
 
 from test_ai.auth import create_access_token, verify_token
 from test_ai.orchestrator import WorkflowEngine, Workflow
 from test_ai.prompts import PromptTemplateManager, PromptTemplate
 from test_ai.api_clients import OpenAIClient
+from test_ai.scheduler import (
+    ScheduleManager,
+    WorkflowSchedule,
+)
+from test_ai.webhooks import (
+    WebhookManager,
+    Webhook,
+)
 
-app = FastAPI(title="AI Workflow Orchestrator", version="0.1.0")
+# Initialize scheduler globally for lifespan management
+schedule_manager = ScheduleManager()
+webhook_manager = WebhookManager()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage scheduler lifecycle."""
+    schedule_manager.start()
+    yield
+    schedule_manager.shutdown()
+
+
+app = FastAPI(title="AI Workflow Orchestrator", version="0.1.0", lifespan=lifespan)
 
 # Initialize components
 workflow_engine = WorkflowEngine()
@@ -158,6 +180,265 @@ def delete_prompt(template_id: str, authorization: Optional[str] = Header(None))
         return {"status": "success"}
 
     raise HTTPException(status_code=404, detail="Template not found")
+
+
+# Schedule endpoints
+@app.get("/schedules")
+def list_schedules(authorization: Optional[str] = Header(None)):
+    """List all schedules."""
+    verify_auth(authorization)
+    return schedule_manager.list_schedules()
+
+
+@app.get("/schedules/{schedule_id}")
+def get_schedule(schedule_id: str, authorization: Optional[str] = Header(None)):
+    """Get a specific schedule."""
+    verify_auth(authorization)
+    schedule = schedule_manager.get_schedule(schedule_id)
+
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+
+    return schedule
+
+
+@app.post("/schedules")
+def create_schedule(
+    schedule: WorkflowSchedule, authorization: Optional[str] = Header(None)
+):
+    """Create a new schedule."""
+    verify_auth(authorization)
+
+    try:
+        if schedule_manager.create_schedule(schedule):
+            return {"status": "success", "schedule_id": schedule.id}
+        raise HTTPException(status_code=500, detail="Failed to save schedule")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.put("/schedules/{schedule_id}")
+def update_schedule(
+    schedule_id: str,
+    schedule: WorkflowSchedule,
+    authorization: Optional[str] = Header(None),
+):
+    """Update an existing schedule."""
+    verify_auth(authorization)
+
+    if schedule.id != schedule_id:
+        raise HTTPException(status_code=400, detail="Schedule ID mismatch")
+
+    try:
+        if schedule_manager.update_schedule(schedule):
+            return {"status": "success", "schedule_id": schedule.id}
+        raise HTTPException(status_code=500, detail="Failed to update schedule")
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.delete("/schedules/{schedule_id}")
+def delete_schedule(schedule_id: str, authorization: Optional[str] = Header(None)):
+    """Delete a schedule."""
+    verify_auth(authorization)
+
+    if schedule_manager.delete_schedule(schedule_id):
+        return {"status": "success"}
+
+    raise HTTPException(status_code=404, detail="Schedule not found")
+
+
+@app.post("/schedules/{schedule_id}/pause")
+def pause_schedule(schedule_id: str, authorization: Optional[str] = Header(None)):
+    """Pause a schedule."""
+    verify_auth(authorization)
+
+    if schedule_manager.pause_schedule(schedule_id):
+        return {"status": "success", "message": "Schedule paused"}
+
+    raise HTTPException(status_code=404, detail="Schedule not found")
+
+
+@app.post("/schedules/{schedule_id}/resume")
+def resume_schedule(schedule_id: str, authorization: Optional[str] = Header(None)):
+    """Resume a paused schedule."""
+    verify_auth(authorization)
+
+    if schedule_manager.resume_schedule(schedule_id):
+        return {"status": "success", "message": "Schedule resumed"}
+
+    raise HTTPException(status_code=404, detail="Schedule not found")
+
+
+@app.post("/schedules/{schedule_id}/trigger")
+def trigger_schedule(schedule_id: str, authorization: Optional[str] = Header(None)):
+    """Manually trigger a scheduled workflow immediately."""
+    verify_auth(authorization)
+
+    if schedule_manager.trigger_now(schedule_id):
+        return {"status": "success", "message": "Workflow triggered"}
+
+    raise HTTPException(status_code=404, detail="Schedule not found")
+
+
+@app.get("/schedules/{schedule_id}/history")
+def get_schedule_history(
+    schedule_id: str,
+    limit: int = 10,
+    authorization: Optional[str] = Header(None),
+):
+    """Get execution history for a schedule."""
+    verify_auth(authorization)
+
+    schedule = schedule_manager.get_schedule(schedule_id)
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+
+    history = schedule_manager.get_execution_history(schedule_id, limit)
+    return [h.model_dump(mode="json") for h in history]
+
+
+# Webhook endpoints (authenticated management)
+@app.get("/webhooks")
+def list_webhooks(authorization: Optional[str] = Header(None)):
+    """List all webhooks."""
+    verify_auth(authorization)
+    return webhook_manager.list_webhooks()
+
+
+@app.get("/webhooks/{webhook_id}")
+def get_webhook(webhook_id: str, authorization: Optional[str] = Header(None)):
+    """Get a specific webhook (includes secret)."""
+    verify_auth(authorization)
+    webhook = webhook_manager.get_webhook(webhook_id)
+
+    if not webhook:
+        raise HTTPException(status_code=404, detail="Webhook not found")
+
+    return webhook
+
+
+@app.post("/webhooks")
+def create_webhook(webhook: Webhook, authorization: Optional[str] = Header(None)):
+    """Create a new webhook."""
+    verify_auth(authorization)
+
+    try:
+        if webhook_manager.create_webhook(webhook):
+            return {
+                "status": "success",
+                "webhook_id": webhook.id,
+                "secret": webhook.secret,
+                "trigger_url": f"/hooks/{webhook.id}",
+            }
+        raise HTTPException(status_code=500, detail="Failed to save webhook")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.put("/webhooks/{webhook_id}")
+def update_webhook(
+    webhook_id: str,
+    webhook: Webhook,
+    authorization: Optional[str] = Header(None),
+):
+    """Update an existing webhook."""
+    verify_auth(authorization)
+
+    if webhook.id != webhook_id:
+        raise HTTPException(status_code=400, detail="Webhook ID mismatch")
+
+    try:
+        if webhook_manager.update_webhook(webhook):
+            return {"status": "success", "webhook_id": webhook.id}
+        raise HTTPException(status_code=500, detail="Failed to update webhook")
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.delete("/webhooks/{webhook_id}")
+def delete_webhook(webhook_id: str, authorization: Optional[str] = Header(None)):
+    """Delete a webhook."""
+    verify_auth(authorization)
+
+    if webhook_manager.delete_webhook(webhook_id):
+        return {"status": "success"}
+
+    raise HTTPException(status_code=404, detail="Webhook not found")
+
+
+@app.post("/webhooks/{webhook_id}/regenerate-secret")
+def regenerate_webhook_secret(
+    webhook_id: str, authorization: Optional[str] = Header(None)
+):
+    """Regenerate the secret for a webhook."""
+    verify_auth(authorization)
+
+    try:
+        new_secret = webhook_manager.regenerate_secret(webhook_id)
+        return {"status": "success", "secret": new_secret}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.get("/webhooks/{webhook_id}/history")
+def get_webhook_history(
+    webhook_id: str,
+    limit: int = 10,
+    authorization: Optional[str] = Header(None),
+):
+    """Get trigger history for a webhook."""
+    verify_auth(authorization)
+
+    webhook = webhook_manager.get_webhook(webhook_id)
+    if not webhook:
+        raise HTTPException(status_code=404, detail="Webhook not found")
+
+    history = webhook_manager.get_trigger_history(webhook_id, limit)
+    return [h.model_dump(mode="json") for h in history]
+
+
+# Public webhook trigger endpoint (uses signature verification, not JWT)
+@app.post("/hooks/{webhook_id}")
+async def trigger_webhook(
+    webhook_id: str,
+    request: Request,
+    x_webhook_signature: Optional[str] = Header(None, alias="X-Webhook-Signature"),
+):
+    """
+    Public endpoint to trigger a webhook.
+
+    Authentication is via HMAC-SHA256 signature in X-Webhook-Signature header.
+    Generate signature: HMAC-SHA256(secret, request_body)
+    Format: sha256=<hex_digest>
+    """
+    webhook = webhook_manager.get_webhook(webhook_id)
+    if not webhook:
+        raise HTTPException(status_code=404, detail="Webhook not found")
+
+    # Get raw body for signature verification
+    body = await request.body()
+
+    # Verify signature if provided (recommended but optional for testing)
+    if x_webhook_signature:
+        if not webhook_manager.verify_signature(webhook_id, body, x_webhook_signature):
+            raise HTTPException(status_code=401, detail="Invalid signature")
+
+    # Parse payload
+    try:
+        payload = await request.json() if body else {}
+    except Exception:
+        payload = {}
+
+    # Get client IP
+    client_ip = request.client.host if request.client else None
+
+    # Trigger the webhook
+    try:
+        result = webhook_manager.trigger(webhook_id, payload, source_ip=client_ip)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.get("/health")

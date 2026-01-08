@@ -1,0 +1,24 @@
+{
+  "id": "github_push_handler",
+  "name": "GitHub Push Webhook",
+  "description": "Trigger workflow when code is pushed to GitHub",
+  "workflow_id": "simple_ai_completion",
+  "payload_mappings": [
+    {
+      "source_path": "repository.full_name",
+      "target_variable": "repo_name"
+    },
+    {
+      "source_path": "pusher.name",
+      "target_variable": "pusher"
+    },
+    {
+      "source_path": "head_commit.message",
+      "target_variable": "commit_message"
+    }
+  ],
+  "static_variables": {
+    "prompt": "Summarize this code push: Repository {{repo_name}}, pushed by {{pusher}}, commit: {{commit_message}}"
+  },
+  "status": "active"
+}

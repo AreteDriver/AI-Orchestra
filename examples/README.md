@@ -23,6 +23,25 @@ This directory contains example workflow definitions that demonstrate various fe
    - Repository management
    - Standard Operating Procedure creation
 
+### Schedule Examples
+
+4. **[schedule_hourly_report.json](schedule_hourly_report.json)**
+   - Interval-based schedule (every hour)
+   - Triggers simple_ai_completion workflow
+   - Good starting point for scheduled tasks
+
+5. **[schedule_daily_summary.json](schedule_daily_summary.json)**
+   - Cron-based schedule (9 AM on weekdays)
+   - Triggers email_to_notion workflow
+   - Demonstrates cron expressions
+
+### Webhook Examples
+
+6. **[webhook_github_push.json](webhook_github_push.json)**
+   - GitHub push event handler
+   - Payload mapping from GitHub webhook format
+   - Demonstrates event-driven automation
+
 ### Future Examples (Coming Soon)
 
 - **multi-step-ai.json** - Multiple AI operations in sequence

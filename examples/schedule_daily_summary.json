@@ -1,0 +1,18 @@
+{
+  "id": "daily_email_summary",
+  "workflow_id": "email_to_notion",
+  "name": "Daily Email Summary",
+  "description": "Summarize emails every day at 9 AM",
+  "schedule_type": "cron",
+  "cron_config": {
+    "minute": "0",
+    "hour": "9",
+    "day": "*",
+    "month": "*",
+    "day_of_week": "mon-fri"
+  },
+  "variables": {
+    "max_results": 10
+  },
+  "status": "active"
+}

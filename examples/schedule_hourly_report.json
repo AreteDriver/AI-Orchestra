@@ -1,0 +1,17 @@
+{
+  "id": "hourly_ai_report",
+  "workflow_id": "simple_ai_completion",
+  "name": "Hourly AI Report",
+  "description": "Generate an AI summary report every hour",
+  "schedule_type": "interval",
+  "interval_config": {
+    "hours": 1,
+    "minutes": 0,
+    "seconds": 0,
+    "days": 0
+  },
+  "variables": {
+    "prompt": "Generate a brief status update for the current hour."
+  },
+  "status": "active"
+}

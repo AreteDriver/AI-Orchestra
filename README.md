@@ -189,8 +189,8 @@ result = engine.execute_workflow(workflow)
 ## Roadmap
 
 - [ ] Database backend (PostgreSQL) for workflow persistence
-- [ ] Scheduled workflow execution (cron-style)
-- [ ] Webhook triggers for event-driven automation
+- [x] Scheduled workflow execution (cron-style) - APScheduler integration
+- [x] Webhook triggers for event-driven automation - HMAC-SHA256 signed
 - [ ] Async workflow execution with status polling
 - [ ] Additional integrations (Slack, Discord, Jira)
 - [ ] Visual workflow builder in dashboard
