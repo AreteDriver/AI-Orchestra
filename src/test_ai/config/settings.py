@@ -36,6 +36,11 @@ class Settings(BaseSettings):
         "api", description="Claude invocation mode: 'api' or 'cli'"
     )
 
+    # Google Gemini Settings
+    google_api_key: Optional[str] = Field(
+        None, description="Google API key for Gemini"
+    )
+
     # Application Settings
     app_name: str = Field("Gorgon", description="Application name")
     debug: bool = Field(False, description="Debug mode")
