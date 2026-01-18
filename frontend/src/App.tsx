@@ -5,6 +5,7 @@ import { DashboardPage } from '@/pages/Dashboard';
 import { WorkflowsPage } from '@/pages/Workflows';
 import { ExecutionsPage } from '@/pages/Executions';
 import { BudgetPage } from '@/pages/Budget';
+import { ConnectorsPage } from '@/pages/Connectors';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -25,6 +26,7 @@ function App() {
             <Route path="workflows" element={<WorkflowsPage />} />
             <Route path="executions" element={<ExecutionsPage />} />
             <Route path="budget" element={<BudgetPage />} />
+            <Route path="connectors" element={<ConnectorsPage />} />
             {/* Placeholder routes */}
             <Route path="agents" element={<PlaceholderPage title="Agents" />} />
             <Route path="settings" element={<PlaceholderPage title="Settings" />} />

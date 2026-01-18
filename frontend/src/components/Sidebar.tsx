@@ -9,6 +9,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Zap,
+  Plug,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -24,6 +25,7 @@ const navItems: NavItem[] = [
   { title: 'Dashboard', href: '/', icon: LayoutDashboard },
   { title: 'Workflows', href: '/workflows', icon: GitBranch },
   { title: 'Executions', href: '/executions', icon: Play },
+  { title: 'Connectors', href: '/connectors', icon: Plug },
   { title: 'Agents', href: '/agents', icon: Users },
   { title: 'Budget', href: '/budget', icon: Wallet },
   { title: 'Settings', href: '/settings', icon: Settings },

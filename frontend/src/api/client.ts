@@ -10,6 +10,12 @@ import type {
   DashboardStats,
   SystemHealth,
 } from '@/types';
+import type {
+  MCPServer,
+  MCPServerCreateInput,
+  MCPTool,
+  Credential,
+} from '@/types/mcp';
 
 // =============================================================================
 // API Client Configuration
@@ -212,6 +218,67 @@ class GorgonApiClient {
 
   isAuthenticated(): boolean {
     return !!localStorage.getItem('gorgon_token');
+  }
+
+  // ---------------------------------------------------------------------------
+  // MCP Servers
+  // ---------------------------------------------------------------------------
+
+  async getMCPServers(): Promise<MCPServer[]> {
+    const { data } = await this.client.get('/mcp/servers');
+    return data;
+  }
+
+  async getMCPServer(id: string): Promise<MCPServer> {
+    const { data } = await this.client.get(`/mcp/servers/${id}`);
+    return data;
+  }
+
+  async createMCPServer(server: MCPServerCreateInput): Promise<MCPServer> {
+    const { data } = await this.client.post('/mcp/servers', server);
+    return data;
+  }
+
+  async updateMCPServer(id: string, server: Partial<MCPServerCreateInput>): Promise<MCPServer> {
+    const { data } = await this.client.put(`/mcp/servers/${id}`, server);
+    return data;
+  }
+
+  async deleteMCPServer(id: string): Promise<void> {
+    await this.client.delete(`/mcp/servers/${id}`);
+  }
+
+  async testMCPConnection(id: string): Promise<{ success: boolean; error?: string; tools?: MCPTool[] }> {
+    const { data } = await this.client.post(`/mcp/servers/${id}/test`);
+    return data;
+  }
+
+  async getMCPTools(serverId: string): Promise<MCPTool[]> {
+    const { data } = await this.client.get(`/mcp/servers/${serverId}/tools`);
+    return data;
+  }
+
+  async invokeMCPTool(serverId: string, toolName: string, input: Record<string, unknown>): Promise<unknown> {
+    const { data } = await this.client.post(`/mcp/servers/${serverId}/tools/${toolName}/invoke`, input);
+    return data;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Credentials
+  // ---------------------------------------------------------------------------
+
+  async getCredentials(): Promise<Credential[]> {
+    const { data } = await this.client.get('/credentials');
+    return data;
+  }
+
+  async createCredential(credential: { name: string; type: string; service: string; value: string }): Promise<Credential> {
+    const { data } = await this.client.post('/credentials', credential);
+    return data;
+  }
+
+  async deleteCredential(id: string): Promise<void> {
+    await this.client.delete(`/credentials/${id}`);
   }
 }
 
