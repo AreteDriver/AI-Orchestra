@@ -4,7 +4,8 @@ import pytest
 import tempfile
 import os
 import sys
-sys.path.insert(0, 'src')
+
+sys.path.insert(0, "src")
 
 from test_ai.state.backends import (
     SQLiteBackend,

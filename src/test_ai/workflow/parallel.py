@@ -198,11 +198,14 @@ class ParallelExecutor:
         pending = {t.id: t for t in tasks}
         completed_ids: set[str] = set()
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=self.max_workers
+        ) as executor:
             while pending:
                 # Find ready tasks
                 ready = [
-                    task for task in pending.values()
+                    task
+                    for task in pending.values()
                     if all(dep in completed_ids for dep in task.dependencies)
                 ]
 
@@ -219,7 +222,9 @@ class ParallelExecutor:
                     futures[future] = task
 
                 # Wait for completion
-                for future in concurrent.futures.as_completed(futures, timeout=self.timeout):
+                for future in concurrent.futures.as_completed(
+                    futures, timeout=self.timeout
+                ):
                     task = futures[future]
                     task.completed_at = datetime.utcnow()
 
@@ -258,7 +263,8 @@ class ParallelExecutor:
 
         while pending:
             ready = [
-                task for task in pending.values()
+                task
+                for task in pending.values()
                 if all(dep in completed_ids for dep in task.dependencies)
             ]
 
@@ -341,10 +347,13 @@ class ParallelExecutor:
         pending = {t.id: t for t in tasks}
         completed_ids: set[str] = set()
 
-        with concurrent.futures.ProcessPoolExecutor(max_workers=self.max_workers) as executor:
+        with concurrent.futures.ProcessPoolExecutor(
+            max_workers=self.max_workers
+        ) as executor:
             while pending:
                 ready = [
-                    task for task in pending.values()
+                    task
+                    for task in pending.values()
                     if all(dep in completed_ids for dep in task.dependencies)
                 ]
 
@@ -359,7 +368,9 @@ class ParallelExecutor:
                     future = executor.submit(task.handler, *task.args, **task.kwargs)
                     futures[future] = task
 
-                for future in concurrent.futures.as_completed(futures, timeout=self.timeout):
+                for future in concurrent.futures.as_completed(
+                    futures, timeout=self.timeout
+                ):
                     task = futures[future]
                     task.completed_at = datetime.utcnow()
 

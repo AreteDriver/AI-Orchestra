@@ -226,11 +226,12 @@ class PostgresBackend(DatabaseBackend):
     def _adapt_schema(self, script: str) -> str:
         """Adapt SQLite schema syntax for PostgreSQL."""
         # Replace AUTOINCREMENT with SERIAL
-        script = script.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "SERIAL PRIMARY KEY")
+        script = script.replace(
+            "INTEGER PRIMARY KEY AUTOINCREMENT", "SERIAL PRIMARY KEY"
+        )
         # Replace TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         script = script.replace(
-            "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
-            "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+            "TIMESTAMP DEFAULT CURRENT_TIMESTAMP", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
         )
         return script
 

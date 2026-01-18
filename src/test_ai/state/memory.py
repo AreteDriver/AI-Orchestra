@@ -49,10 +49,16 @@ class MemoryEntry:
             workflow_id=data.get("workflow_id"),
             memory_type=data.get("memory_type", "conversation"),
             content=data.get("content", ""),
-            metadata=json.loads(data["metadata"]) if isinstance(data.get("metadata"), str) else data.get("metadata", {}),
+            metadata=json.loads(data["metadata"])
+            if isinstance(data.get("metadata"), str)
+            else data.get("metadata", {}),
             importance=data.get("importance", 0.5),
-            created_at=datetime.fromisoformat(data["created_at"]) if data.get("created_at") else None,
-            accessed_at=datetime.fromisoformat(data["accessed_at"]) if data.get("accessed_at") else None,
+            created_at=datetime.fromisoformat(data["created_at"])
+            if data.get("created_at")
+            else None,
+            accessed_at=datetime.fromisoformat(data["accessed_at"])
+            if data.get("accessed_at")
+            else None,
             access_count=data.get("access_count", 0),
         )
 
@@ -92,7 +98,9 @@ class AgentMemory:
         ON agent_memories(accessed_at DESC);
     """
 
-    def __init__(self, backend: DatabaseBackend | None = None, db_path: str = "gorgon-memory.db"):
+    def __init__(
+        self, backend: DatabaseBackend | None = None, db_path: str = "gorgon-memory.db"
+    ):
         """Initialize agent memory.
 
         Args:
@@ -439,7 +447,9 @@ class AgentMemory:
         return {
             "total_memories": total["count"] if total else 0,
             "by_type": {row["memory_type"]: row["count"] for row in by_type},
-            "average_importance": round(avg_importance["avg"] or 0, 2) if avg_importance else 0,
+            "average_importance": round(avg_importance["avg"] or 0, 2)
+            if avg_importance
+            else 0,
         }
 
     def format_context(self, memories: dict[str, list[MemoryEntry]]) -> str:
@@ -462,7 +472,9 @@ class AgentMemory:
             parts.append(f"User Preferences:\n{prefs_text}")
 
         if "workflow" in memories:
-            workflow_text = "\n".join(f"- {m.content}" for m in memories["workflow"][:5])
+            workflow_text = "\n".join(
+                f"- {m.content}" for m in memories["workflow"][:5]
+            )
             parts.append(f"Current Workflow Context:\n{workflow_text}")
 
         if "recent" in memories:

@@ -56,7 +56,9 @@ class StepMetrics:
             "step_type": self.step_type,
             "status": self.status,
             "started_at": self.started_at.isoformat() if self.started_at else None,
-            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+            "completed_at": self.completed_at.isoformat()
+            if self.completed_at
+            else None,
             "duration_ms": self.duration_ms,
             "tokens_used": self.tokens_used,
             "retries": self.retries,
@@ -133,7 +135,9 @@ class WorkflowMetrics:
             "execution_id": self.execution_id,
             "status": self.status,
             "started_at": self.started_at.isoformat() if self.started_at else None,
-            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+            "completed_at": self.completed_at.isoformat()
+            if self.completed_at
+            else None,
             "duration_ms": self.duration_ms,
             "total_tokens": self.total_tokens,
             "success_rate": self.success_rate,
@@ -394,7 +398,14 @@ class MetricsCollector:
             # Calculate histogram stats
             def histogram_stats(values: list[float]) -> dict:
                 if not values:
-                    return {"count": 0, "min": 0, "max": 0, "avg": 0, "p50": 0, "p95": 0}
+                    return {
+                        "count": 0,
+                        "min": 0,
+                        "max": 0,
+                        "avg": 0,
+                        "p50": 0,
+                        "p95": 0,
+                    }
                 sorted_vals = sorted(values)
                 return {
                     "count": len(values),
@@ -402,16 +413,19 @@ class MetricsCollector:
                     "max": max(values),
                     "avg": sum(values) / len(values),
                     "p50": sorted_vals[len(sorted_vals) // 2],
-                    "p95": sorted_vals[int(len(sorted_vals) * 0.95)] if len(sorted_vals) > 1 else sorted_vals[0],
+                    "p95": sorted_vals[int(len(sorted_vals) * 0.95)]
+                    if len(sorted_vals) > 1
+                    else sorted_vals[0],
                 }
 
             total_workflows = (
-                self._counters["workflows_completed"] +
-                self._counters["workflows_failed"]
+                self._counters["workflows_completed"]
+                + self._counters["workflows_failed"]
             )
             success_rate = (
                 self._counters["workflows_completed"] / total_workflows * 100
-                if total_workflows > 0 else 0
+                if total_workflows > 0
+                else 0
             )
 
             return {
@@ -420,7 +434,9 @@ class MetricsCollector:
                 "active_workflows": len(self._active),
                 "total_executions": total_workflows,
                 "success_rate": success_rate,
-                "workflow_duration": histogram_stats(self._histograms["workflow_duration_ms"]),
+                "workflow_duration": histogram_stats(
+                    self._histograms["workflow_duration_ms"]
+                ),
                 "workflow_tokens": histogram_stats(self._histograms["workflow_tokens"]),
                 "step_duration": histogram_stats(self._histograms["step_duration_ms"]),
             }

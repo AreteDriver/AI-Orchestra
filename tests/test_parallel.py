@@ -3,7 +3,8 @@
 import pytest
 import time
 import sys
-sys.path.insert(0, 'src')
+
+sys.path.insert(0, "src")
 
 from test_ai.workflow.parallel import (
     ParallelExecutor,
@@ -56,6 +57,7 @@ class TestParallelTask:
     def test_task_duration(self):
         """Task tracks duration."""
         from datetime import datetime
+
         task = ParallelTask(
             id="task-1",
             step_id="step-1",
@@ -144,7 +146,9 @@ class TestParallelExecutor:
         executor = ParallelExecutor(max_workers=4)
 
         tasks = [
-            ParallelTask(id=f"task-{i}", step_id=f"s-{i}", handler=slow_task, args=(0.1,))
+            ParallelTask(
+                id=f"task-{i}", step_id=f"s-{i}", handler=slow_task, args=(0.1,)
+            )
             for i in range(4)
         ]
 
@@ -167,12 +171,17 @@ class TestParallelExecutor:
                 execution_order.append(name)
                 time.sleep(0.01)
                 return name
+
             return fn
 
         tasks = [
             ParallelTask(id="a", step_id="a", handler=track_order("a")),
-            ParallelTask(id="b", step_id="b", handler=track_order("b"), dependencies=["a"]),
-            ParallelTask(id="c", step_id="c", handler=track_order("c"), dependencies=["b"]),
+            ParallelTask(
+                id="b", step_id="b", handler=track_order("b"), dependencies=["a"]
+            ),
+            ParallelTask(
+                id="c", step_id="c", handler=track_order("c"), dependencies=["b"]
+            ),
         ]
 
         result = executor.execute_parallel(tasks)

@@ -466,6 +466,7 @@ def schedule_list(
     """List all scheduled workflows."""
     try:
         from test_ai.workflow import WorkflowScheduler
+
         scheduler = WorkflowScheduler()
         schedules = scheduler.list()
     except Exception as e:
@@ -488,7 +489,9 @@ def schedule_list(
     table.add_column("Next Run")
 
     for s in schedules:
-        schedule_str = s.cron_expression if s.cron_expression else f"every {s.interval_seconds}s"
+        schedule_str = (
+            s.cron_expression if s.cron_expression else f"every {s.interval_seconds}s"
+        )
         status_color = "green" if s.status.value == "active" else "yellow"
         next_run = str(s.next_run_time)[:19] if s.next_run_time else "-"
         table.add_row(
@@ -516,6 +519,7 @@ def schedule_add(
 
     try:
         from test_ai.workflow import WorkflowScheduler, ScheduleConfig
+
         scheduler = WorkflowScheduler()
 
         config = ScheduleConfig(
@@ -544,6 +548,7 @@ def schedule_remove(
     """Remove a scheduled workflow."""
     try:
         from test_ai.workflow import WorkflowScheduler
+
         scheduler = WorkflowScheduler()
 
         if scheduler.remove(schedule_id):
@@ -563,6 +568,7 @@ def schedule_pause(
     """Pause a scheduled workflow."""
     try:
         from test_ai.workflow import WorkflowScheduler
+
         scheduler = WorkflowScheduler()
 
         if scheduler.pause(schedule_id):
@@ -582,6 +588,7 @@ def schedule_resume(
     """Resume a paused scheduled workflow."""
     try:
         from test_ai.workflow import WorkflowScheduler
+
         scheduler = WorkflowScheduler()
 
         if scheduler.resume(schedule_id):
@@ -609,6 +616,7 @@ def memory_list(
     """List agent memories."""
     try:
         from test_ai.state import AgentMemory
+
         memory = AgentMemory()
 
         if agent:
@@ -620,6 +628,7 @@ def memory_list(
                 (limit,),
             )
             from test_ai.state.memory import MemoryEntry
+
             memories = [MemoryEntry.from_dict(m) for m in memories]
     except Exception as e:
         console.print(f"[red]Error loading memories:[/red] {e}")
@@ -661,6 +670,7 @@ def memory_stats(
     """Show memory statistics for an agent."""
     try:
         from test_ai.state import AgentMemory
+
         memory = AgentMemory()
         stats = memory.get_stats(agent)
     except Exception as e:
@@ -671,16 +681,18 @@ def memory_stats(
         print(json.dumps(stats, indent=2))
         return
 
-    console.print(Panel(
-        f"Total Memories: [bold]{stats['total_memories']}[/bold]\n"
-        f"Average Importance: [bold]{stats['average_importance']:.2f}[/bold]",
-        title=f"Memory Stats: {agent}",
-        border_style="blue",
-    ))
+    console.print(
+        Panel(
+            f"Total Memories: [bold]{stats['total_memories']}[/bold]\n"
+            f"Average Importance: [bold]{stats['average_importance']:.2f}[/bold]",
+            title=f"Memory Stats: {agent}",
+            border_style="blue",
+        )
+    )
 
-    if stats['by_type']:
+    if stats["by_type"]:
         console.print("\n[dim]By Type:[/dim]")
-        for mtype, count in stats['by_type'].items():
+        for mtype, count in stats["by_type"].items():
             console.print(f"  {mtype}: {count}")
 
 
@@ -700,6 +712,7 @@ def memory_clear(
 
     try:
         from test_ai.state import AgentMemory
+
         memory = AgentMemory()
         count = memory.forget(agent, memory_type=memory_type)
         console.print(f"[green]✓ Cleared {count} memories[/green]")
@@ -720,6 +733,7 @@ def budget_status(
     """Show current budget status."""
     try:
         from test_ai.budget import BudgetManager
+
         manager = BudgetManager()
         stats = manager.get_stats()
     except Exception as e:
@@ -730,21 +744,27 @@ def budget_status(
         print(json.dumps(stats, indent=2, default=str))
         return
 
-    used_pct = (stats['used'] / stats['total_budget'] * 100) if stats['total_budget'] > 0 else 0
+    used_pct = (
+        (stats["used"] / stats["total_budget"] * 100)
+        if stats["total_budget"] > 0
+        else 0
+    )
     status_color = "green" if used_pct < 75 else "yellow" if used_pct < 90 else "red"
 
-    console.print(Panel(
-        f"Total Budget: [bold]{stats['total_budget']:,}[/bold] tokens\n"
-        f"Used: [bold]{stats['used']:,}[/bold] tokens ([{status_color}]{used_pct:.1f}%[/{status_color}])\n"
-        f"Remaining: [bold]{stats['remaining']:,}[/bold] tokens\n"
-        f"Operations: [bold]{stats['total_operations']}[/bold]",
-        title="Budget Status",
-        border_style="blue",
-    ))
+    console.print(
+        Panel(
+            f"Total Budget: [bold]{stats['total_budget']:,}[/bold] tokens\n"
+            f"Used: [bold]{stats['used']:,}[/bold] tokens ([{status_color}]{used_pct:.1f}%[/{status_color}])\n"
+            f"Remaining: [bold]{stats['remaining']:,}[/bold] tokens\n"
+            f"Operations: [bold]{stats['total_operations']}[/bold]",
+            title="Budget Status",
+            border_style="blue",
+        )
+    )
 
-    if stats.get('agents'):
+    if stats.get("agents"):
         console.print("\n[dim]Usage by Agent:[/dim]")
-        for agent_id, usage in stats['agents'].items():
+        for agent_id, usage in stats["agents"].items():
             console.print(f"  {agent_id}: {usage:,} tokens")
 
 
@@ -757,6 +777,7 @@ def budget_history(
     """Show budget usage history."""
     try:
         from test_ai.budget import BudgetManager
+
         manager = BudgetManager()
         history = manager.get_usage_history(agent)[:limit]
     except Exception as e:
@@ -800,6 +821,7 @@ def budget_reset(
 
     try:
         from test_ai.budget import BudgetManager
+
         manager = BudgetManager()
         manager.reset()
         console.print("[green]✓ Budget tracking reset[/green]")

@@ -59,11 +59,7 @@ def load_plugin_from_file(
         plugin_class: Type[Plugin] | None = None
         for name in dir(module):
             obj = getattr(module, name)
-            if (
-                isinstance(obj, type)
-                and issubclass(obj, Plugin)
-                and obj is not Plugin
-            ):
+            if isinstance(obj, type) and issubclass(obj, Plugin) and obj is not Plugin:
                 plugin_class = obj
                 break
 
@@ -109,11 +105,7 @@ def load_plugin_from_module(
         plugin_class: Type[Plugin] | None = None
         for name in dir(module):
             obj = getattr(module, name)
-            if (
-                isinstance(obj, type)
-                and issubclass(obj, Plugin)
-                and obj is not Plugin
-            ):
+            if isinstance(obj, type) and issubclass(obj, Plugin) and obj is not Plugin:
                 plugin_class = obj
                 break
 

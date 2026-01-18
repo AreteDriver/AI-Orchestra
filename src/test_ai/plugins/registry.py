@@ -22,7 +22,9 @@ class PluginRegistry:
         """Initialize plugin registry."""
         self._lock = threading.Lock()
         self._plugins: dict[str, Plugin] = {}
-        self._handlers: dict[str, tuple[str, StepHandler]] = {}  # type -> (plugin_name, handler)
+        self._handlers: dict[
+            str, tuple[str, StepHandler]
+        ] = {}  # type -> (plugin_name, handler)
         self._hooks: dict[PluginHook, list[tuple[str, Callable]]] = {
             hook: [] for hook in PluginHook
         }
@@ -73,9 +75,7 @@ class PluginRegistry:
             self._hooks[PluginHook.STEP_START].append(
                 (plugin.name, plugin.on_step_start)
             )
-            self._hooks[PluginHook.STEP_END].append(
-                (plugin.name, plugin.on_step_end)
-            )
+            self._hooks[PluginHook.STEP_END].append((plugin.name, plugin.on_step_end))
             self._hooks[PluginHook.STEP_ERROR].append(
                 (plugin.name, plugin.on_step_error)
             )
@@ -108,9 +108,7 @@ class PluginRegistry:
             # Remove hooks
             for hook in PluginHook:
                 self._hooks[hook] = [
-                    (name, cb)
-                    for name, cb in self._hooks[hook]
-                    if name != plugin_name
+                    (name, cb) for name, cb in self._hooks[hook] if name != plugin_name
                 ]
 
             # Shutdown plugin

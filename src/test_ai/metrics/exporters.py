@@ -72,7 +72,9 @@ class PrometheusExporter(MetricsExporter):
         lines.append(f"{self.prefix}_success_rate {summary['success_rate']:.2f}")
 
         # Histograms
-        self._export_histogram(lines, "workflow_duration_ms", summary["workflow_duration"])
+        self._export_histogram(
+            lines, "workflow_duration_ms", summary["workflow_duration"]
+        )
         self._export_histogram(lines, "workflow_tokens", summary["workflow_tokens"])
         self._export_histogram(lines, "step_duration_ms", summary["step_duration"])
 
@@ -91,12 +93,20 @@ class PrometheusExporter(MetricsExporter):
     def export_workflow(self, metrics: WorkflowMetrics) -> str:
         """Export single workflow as Prometheus metrics."""
         lines = []
-        labels = f'workflow_id="{metrics.workflow_id}",execution_id="{metrics.execution_id}"'
+        labels = (
+            f'workflow_id="{metrics.workflow_id}",execution_id="{metrics.execution_id}"'
+        )
 
-        lines.append(f'{self.prefix}_workflow_duration_ms{{{labels}}} {metrics.duration_ms}')
-        lines.append(f'{self.prefix}_workflow_tokens{{{labels}}} {metrics.total_tokens}')
-        lines.append(f'{self.prefix}_workflow_success{{{labels}}} {1 if metrics.status == "success" else 0}')
-        lines.append(f'{self.prefix}_workflow_steps{{{labels}}} {len(metrics.steps)}')
+        lines.append(
+            f"{self.prefix}_workflow_duration_ms{{{labels}}} {metrics.duration_ms}"
+        )
+        lines.append(
+            f"{self.prefix}_workflow_tokens{{{labels}}} {metrics.total_tokens}"
+        )
+        lines.append(
+            f"{self.prefix}_workflow_success{{{labels}}} {1 if metrics.status == 'success' else 0}"
+        )
+        lines.append(f"{self.prefix}_workflow_steps{{{labels}}} {len(metrics.steps)}")
 
         return "\n".join(lines) + "\n"
 
