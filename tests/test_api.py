@@ -90,6 +90,26 @@ class TestHealthEndpoint:
         assert data["status"] == "healthy"
         assert "timestamp" in data
 
+    def test_database_health_check(self, client):
+        """GET /health/db returns database health status."""
+        response = client.get("/health/db")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "healthy"
+        assert data["database"] == "connected"
+        assert "migrations" in data
+        assert "timestamp" in data
+
+    def test_database_health_check_migrations_info(self, client):
+        """GET /health/db returns migration status details."""
+        response = client.get("/health/db")
+        assert response.status_code == 200
+        data = response.json()
+        migrations = data["migrations"]
+        assert "applied" in migrations
+        assert "pending" in migrations
+        assert "up_to_date" in migrations
+
 
 class TestRootEndpoint:
     """Tests for root endpoint."""

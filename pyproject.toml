@@ -3,14 +3,13 @@ name = "gorgon"
 version = "0.3.0"
 description = "Multi-agent orchestration framework for production AI workflows"
 authors = ["Aretedriver <aretedriver@gmail.com>"]
-package-mode = false
+packages = [{include = "test_ai", from = "src"}]
 
 [tool.poetry.dependencies]
 python = ">=3.12,<4.0"
 openai = "^2.1.0"
 anthropic = "^0.40.0"
 fastapi = "^0.128.0"
-starlette = "^0.51.0"
 uvicorn = "^0.34.0"
 streamlit = "^1.39.0"
 google-auth = "^2.35.0"

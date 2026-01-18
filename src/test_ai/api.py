@@ -24,7 +24,7 @@ from test_ai.jobs import (
     JobManager,
     JobStatus,
 )
-from test_ai.state import get_database, run_migrations
+from test_ai.state import get_database, run_migrations, get_migration_status
 
 logger = logging.getLogger(__name__)
 
@@ -580,6 +580,40 @@ def cleanup_jobs(max_age_hours: int = 24, authorization: Optional[str] = Header(
 def health_check():
     """Health check endpoint."""
     return {"status": "healthy", "timestamp": datetime.now().isoformat()}
+
+
+@app.get("/health/db")
+def database_health_check():
+    """Database health check endpoint.
+
+    Checks database connectivity and migration status.
+    Returns 503 if database is unreachable.
+    """
+    try:
+        backend = get_database()
+
+        # Test connectivity with a simple query
+        backend.fetchone("SELECT 1 AS ping")
+
+        # Get migration status
+        migration_status = get_migration_status(backend)
+
+        return {
+            "status": "healthy",
+            "database": "connected",
+            "migrations": migration_status,
+            "timestamp": datetime.now().isoformat(),
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "status": "unhealthy",
+                "database": "disconnected",
+                "error": str(e),
+                "timestamp": datetime.now().isoformat(),
+            },
+        )
 
 
 if __name__ == "__main__":
