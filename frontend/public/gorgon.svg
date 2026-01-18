@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none">
+  <circle cx="50" cy="50" r="45" fill="#3B82F6"/>
+  <circle cx="50" cy="50" r="35" fill="#1E40AF"/>
+  <!-- Three agent heads representing multi-agent -->
+  <circle cx="50" cy="35" r="8" fill="#FCD34D"/>
+  <circle cx="35" cy="55" r="8" fill="#34D399"/>
+  <circle cx="65" cy="55" r="8" fill="#F472B6"/>
+  <!-- Connecting lines -->
+  <line x1="50" y1="43" x2="35" y2="47" stroke="#94A3B8" stroke-width="2"/>
+  <line x1="50" y1="43" x2="65" y2="47" stroke="#94A3B8" stroke-width="2"/>
+  <line x1="35" y1="55" x2="65" y2="55" stroke="#94A3B8" stroke-width="2"/>
+  <!-- Lightning bolt for AI -->
+  <path d="M52 20L48 30H54L50 42L56 28H50L52 20Z" fill="#FCD34D"/>
+</svg>
