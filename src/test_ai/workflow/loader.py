@@ -148,7 +148,13 @@ WORKFLOW_SCHEMA = {
                     "id": {"type": "string", "minLength": 1},
                     "type": {
                         "type": "string",
-                        "enum": ["claude_code", "openai", "shell", "parallel", "checkpoint"],
+                        "enum": [
+                            "claude_code",
+                            "openai",
+                            "shell",
+                            "parallel",
+                            "checkpoint",
+                        ],
                     },
                     "params": {"type": "object"},
                     "condition": {
@@ -158,7 +164,13 @@ WORKFLOW_SCHEMA = {
                             "field": {"type": "string"},
                             "operator": {
                                 "type": "string",
-                                "enum": ["equals", "not_equals", "contains", "greater_than", "less_than"],
+                                "enum": [
+                                    "equals",
+                                    "not_equals",
+                                    "contains",
+                                    "greater_than",
+                                    "less_than",
+                                ],
                             },
                             "value": {},
                         },
@@ -292,7 +304,13 @@ def _validate_step(step: dict, index: int) -> list[str]:
 
     if "type" not in step:
         errors.append(f"{prefix}: missing required field 'type'")
-    elif step["type"] not in ("claude_code", "openai", "shell", "parallel", "checkpoint"):
+    elif step["type"] not in (
+        "claude_code",
+        "openai",
+        "shell",
+        "parallel",
+        "checkpoint",
+    ):
         errors.append(f"{prefix}: invalid type '{step['type']}'")
 
     # Validate condition if present
@@ -311,7 +329,9 @@ def _validate_step(step: dict, index: int) -> list[str]:
                 "greater_than",
                 "less_than",
             ):
-                errors.append(f"{prefix}: invalid condition operator '{cond['operator']}'")
+                errors.append(
+                    f"{prefix}: invalid condition operator '{cond['operator']}'"
+                )
 
     # Validate on_failure
     if "on_failure" in step and step["on_failure"] not in ("abort", "skip", "retry"):

@@ -94,7 +94,11 @@ class BudgetManager:
     @property
     def status(self) -> BudgetStatus:
         """Get current budget status."""
-        ratio = self._total_used / self.config.total_budget if self.config.total_budget > 0 else 1.0
+        ratio = (
+            self._total_used / self.config.total_budget
+            if self.config.total_budget > 0
+            else 1.0
+        )
 
         if ratio > 1.0:
             return BudgetStatus.EXCEEDED

@@ -250,7 +250,9 @@ class CheckpointManager:
 
         total_tokens = sum(cp["tokens_used"] for cp in checkpoints)
         total_duration = sum(cp["duration_ms"] for cp in checkpoints)
-        stages_completed = [cp["stage"] for cp in checkpoints if cp["status"] == "success"]
+        stages_completed = [
+            cp["stage"] for cp in checkpoints if cp["status"] == "success"
+        ]
         stages_failed = [cp["stage"] for cp in checkpoints if cp["status"] == "failed"]
 
         return {

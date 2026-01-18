@@ -22,6 +22,7 @@ def _get_claude_client():
     if _claude_client is None:
         try:
             from test_ai.api_clients.claude_code_client import ClaudeCodeClient
+
             _claude_client = ClaudeCodeClient()
         except Exception:
             _claude_client = False  # Mark as unavailable
@@ -34,6 +35,7 @@ def _get_openai_client():
     if _openai_client is None:
         try:
             from test_ai.api_clients.openai_client import OpenAIClient
+
             _openai_client = OpenAIClient()
         except Exception:
             _openai_client = False  # Mark as unavailable
@@ -97,7 +99,9 @@ class ExecutionResult:
             "total_tokens": self.total_tokens,
             "total_duration_ms": self.total_duration_ms,
             "started_at": self.started_at.isoformat(),
-            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+            "completed_at": self.completed_at.isoformat()
+            if self.completed_at
+            else None,
             "error": self.error,
         }
 
@@ -202,7 +206,9 @@ class WorkflowExecutor:
             for i, step in enumerate(workflow.steps[start_index:], start=start_index):
                 # Check budget before execution
                 if self.budget_manager:
-                    if not self.budget_manager.can_allocate(step.params.get("estimated_tokens", 1000)):
+                    if not self.budget_manager.can_allocate(
+                        step.params.get("estimated_tokens", 1000)
+                    ):
                         result.status = "failed"
                         result.error = "Token budget exceeded"
                         break
@@ -244,7 +250,9 @@ class WorkflowExecutor:
                 if result.status == "success":
                     self.checkpoint_manager.complete_workflow(workflow_id)
                 else:
-                    self.checkpoint_manager.fail_workflow(result.error or "Unknown error", workflow_id)
+                    self.checkpoint_manager.fail_workflow(
+                        result.error or "Unknown error", workflow_id
+                    )
 
         # Collect workflow outputs
         for output_name in workflow.outputs:
@@ -344,7 +352,9 @@ class WorkflowExecutor:
         )
 
         if result.returncode != 0 and not step.params.get("allow_failure", False):
-            raise RuntimeError(f"Command failed with code {result.returncode}: {result.stderr}")
+            raise RuntimeError(
+                f"Command failed with code {result.returncode}: {result.stderr}"
+            )
 
         return {
             "stdout": result.stdout,
@@ -412,10 +422,14 @@ class WorkflowExecutor:
         # Get Claude client
         client = _get_claude_client()
         if not client:
-            raise RuntimeError("Claude Code client not available. Check API key configuration.")
+            raise RuntimeError(
+                "Claude Code client not available. Check API key configuration."
+            )
 
         if not client.is_configured():
-            raise RuntimeError("Claude Code client not configured. Set ANTHROPIC_API_KEY.")
+            raise RuntimeError(
+                "Claude Code client not configured. Set ANTHROPIC_API_KEY."
+            )
 
         # Execute via API
         if system_prompt:
@@ -437,7 +451,9 @@ class WorkflowExecutor:
             )
 
         if not result.get("success"):
-            raise RuntimeError(f"Claude API error: {result.get('error', 'Unknown error')}")
+            raise RuntimeError(
+                f"Claude API error: {result.get('error', 'Unknown error')}"
+            )
 
         # Estimate tokens (actual count would require API response metadata)
         response_text = result.get("output", "")
@@ -485,7 +501,9 @@ class WorkflowExecutor:
         # Get OpenAI client
         client = _get_openai_client()
         if not client:
-            raise RuntimeError("OpenAI client not available. Check API key configuration.")
+            raise RuntimeError(
+                "OpenAI client not available. Check API key configuration."
+            )
 
         try:
             response_text = client.generate_completion(

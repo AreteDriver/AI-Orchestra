@@ -108,24 +108,28 @@ class OperationalAnalyzer(DataAnalyzer):
 
                 if severity == "critical":
                     max_severity = "critical"
-                    findings.append({
-                        "severity": "critical",
-                        "category": "bottleneck",
-                        "message": f"Critical bottleneck at {stage}: {avg_time:.0f}min avg vs {takt_time}min takt",
-                        "data": bn,
-                    })
+                    findings.append(
+                        {
+                            "severity": "critical",
+                            "category": "bottleneck",
+                            "message": f"Critical bottleneck at {stage}: {avg_time:.0f}min avg vs {takt_time}min takt",
+                            "data": bn,
+                        }
+                    )
                     recommendations.append(
                         f"URGENT: Add resources to {stage} or investigate process issues"
                     )
                 elif severity == "warning":
                     if max_severity != "critical":
                         max_severity = "warning"
-                    findings.append({
-                        "severity": "warning",
-                        "category": "bottleneck",
-                        "message": f"Bottleneck forming at {stage}: {avg_time:.0f}min avg vs {takt_time}min takt",
-                        "data": bn,
-                    })
+                    findings.append(
+                        {
+                            "severity": "warning",
+                            "category": "bottleneck",
+                            "message": f"Bottleneck forming at {stage}: {avg_time:.0f}min avg vs {takt_time}min takt",
+                            "data": bn,
+                        }
+                    )
 
         # Analyze shift progress
         for shift_key in ["day_shift", "night_shift"]:
@@ -139,12 +143,14 @@ class OperationalAnalyzer(DataAnalyzer):
                 if pct < shift_warning_pct:
                     if max_severity == "info":
                         max_severity = "warning"
-                    findings.append({
-                        "severity": "warning",
-                        "category": "shift_progress",
-                        "message": f"{shift_name.title()} shift at {pct}% - below target",
-                        "data": shift_data,
-                    })
+                    findings.append(
+                        {
+                            "severity": "warning",
+                            "category": "shift_progress",
+                            "message": f"{shift_name.title()} shift at {pct}% - below target",
+                            "data": shift_data,
+                        }
+                    )
                     recommendations.append(
                         f"Review {shift_name} shift resource allocation"
                     )
@@ -163,21 +169,25 @@ class OperationalAnalyzer(DataAnalyzer):
             wo_status = ops.get("work_orders_by_status", {})
             failed_qc = wo_status.get("failed_qc", 0)
             if failed_qc > 0:
-                findings.append({
-                    "severity": "warning",
-                    "category": "quality",
-                    "message": f"{failed_qc} work orders failed QC",
-                    "data": {"failed_qc_count": failed_qc},
-                })
+                findings.append(
+                    {
+                        "severity": "warning",
+                        "category": "quality",
+                        "message": f"{failed_qc} work orders failed QC",
+                        "data": {"failed_qc_count": failed_qc},
+                    }
+                )
                 recommendations.append("Review QC failures and identify root causes")
 
         # Add general recommendations based on findings
         if not findings:
-            findings.append({
-                "severity": "info",
-                "category": "status",
-                "message": "Operations running normally",
-            })
+            findings.append(
+                {
+                    "severity": "info",
+                    "category": "status",
+                    "message": "Operations running normally",
+                }
+            )
 
         return AnalysisResult(
             analyzer="operational",
@@ -233,41 +243,51 @@ class TrendAnalyzer(DataAnalyzer):
                     if avg_ms > 1000:  # Over 1 second
                         if max_severity == "info":
                             max_severity = "warning"
-                        findings.append({
-                            "severity": "warning",
-                            "category": "performance",
-                            "message": f"Slow operation: {metric_name} averaging {avg_ms:.0f}ms",
-                            "data": timing_data,
-                        })
-                        recommendations.append(f"Investigate performance of {metric_name}")
+                        findings.append(
+                            {
+                                "severity": "warning",
+                                "category": "performance",
+                                "message": f"Slow operation: {metric_name} averaging {avg_ms:.0f}ms",
+                                "data": timing_data,
+                            }
+                        )
+                        recommendations.append(
+                            f"Investigate performance of {metric_name}"
+                        )
 
                     # Flag high variance
                     if max_ms > avg_ms * 3 and count > 5:
-                        findings.append({
-                            "severity": "info",
-                            "category": "variance",
-                            "message": f"High variance in {metric_name}: max {max_ms:.0f}ms vs avg {avg_ms:.0f}ms",
-                        })
+                        findings.append(
+                            {
+                                "severity": "info",
+                                "category": "variance",
+                                "message": f"High variance in {metric_name}: max {max_ms:.0f}ms vs avg {avg_ms:.0f}ms",
+                            }
+                        )
 
             # Analyze counters for error trends
             counters = app_metrics.get("counters", {})
             for counter_name, value in counters.items():
                 if "error" in counter_name.lower():
                     if value > 0:
-                        findings.append({
-                            "severity": "warning",
-                            "category": "errors",
-                            "message": f"Error counter {counter_name}: {value}",
-                        })
+                        findings.append(
+                            {
+                                "severity": "warning",
+                                "category": "errors",
+                                "message": f"Error counter {counter_name}: {value}",
+                            }
+                        )
                         if max_severity == "info":
                             max_severity = "warning"
 
         if not findings:
-            findings.append({
-                "severity": "info",
-                "category": "trends",
-                "message": "No significant trends detected",
-            })
+            findings.append(
+                {
+                    "severity": "info",
+                    "category": "trends",
+                    "message": "No significant trends detected",
+                }
+            )
 
         return AnalysisResult(
             analyzer="trends",
@@ -308,7 +328,9 @@ class CompositeAnalyzer(DataAnalyzer):
             all_metrics.update(result.metrics)
             all_recommendations.extend(result.recommendations)
 
-            if severity_order.get(result.severity, 0) > severity_order.get(max_severity, 0):
+            if severity_order.get(result.severity, 0) > severity_order.get(
+                max_severity, 0
+            ):
                 max_severity = result.severity
 
         # Deduplicate recommendations

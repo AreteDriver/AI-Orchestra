@@ -42,11 +42,15 @@ class VDCMetricsClient:
         """
         self.metrics_db_path = Path(
             metrics_db_path
-            or os.environ.get("VDC_METRICS_DB", "/home/arete/projects/vdc-Production/data/metrics.db")
+            or os.environ.get(
+                "VDC_METRICS_DB", "/home/arete/projects/vdc-Production/data/metrics.db"
+            )
         )
         self.logistics_db_path = Path(
             logistics_db_path
-            or os.environ.get("VDC_LOGISTICS_DB", "/home/arete/projects/vdc-Production/logistics.db")
+            or os.environ.get(
+                "VDC_LOGISTICS_DB", "/home/arete/projects/vdc-Production/logistics.db"
+            )
         )
 
     def _get_connection(self, db_path: Path) -> sqlite3.Connection:
@@ -67,7 +71,10 @@ class VDCMetricsClient:
         Returns timing metrics for page loads, DB queries, etc.
         """
         if not self.metrics_db_path.exists():
-            return {"error": "Metrics database not found", "path": str(self.metrics_db_path)}
+            return {
+                "error": "Metrics database not found",
+                "path": str(self.metrics_db_path),
+            }
 
         conn = self._get_connection(self.metrics_db_path)
         try:
@@ -130,7 +137,10 @@ class VDCMetricsClient:
         Returns vehicle counts, stage distribution, bottlenecks, etc.
         """
         if not self.logistics_db_path.exists():
-            return {"error": "Logistics database not found", "path": str(self.logistics_db_path)}
+            return {
+                "error": "Logistics database not found",
+                "path": str(self.logistics_db_path),
+            }
 
         conn = self._get_connection(self.logistics_db_path)
         try:
@@ -144,7 +154,9 @@ class VDCMetricsClient:
                 GROUP BY status
                 """
             )
-            summary["vehicles_by_status"] = {row["status"]: row["count"] for row in cursor.fetchall()}
+            summary["vehicles_by_status"] = {
+                row["status"]: row["count"] for row in cursor.fetchall()
+            }
 
             # Vehicle counts by stage
             cursor = conn.execute(
@@ -158,7 +170,8 @@ class VDCMetricsClient:
                 """
             )
             summary["vehicles_by_stage"] = {
-                row["stage_name"] or "Unknown": row["count"] for row in cursor.fetchall()
+                row["stage_name"] or "Unknown": row["count"]
+                for row in cursor.fetchall()
             }
 
             # Work order status
@@ -169,7 +182,9 @@ class VDCMetricsClient:
                 GROUP BY status
                 """
             )
-            summary["work_orders_by_status"] = {row["status"]: row["count"] for row in cursor.fetchall()}
+            summary["work_orders_by_status"] = {
+                row["status"]: row["count"] for row in cursor.fetchall()
+            }
 
             # Today's movements
             cursor = conn.execute(
@@ -180,7 +195,9 @@ class VDCMetricsClient:
                 GROUP BY movement_type
                 """
             )
-            summary["todays_movements"] = {row["movement_type"]: row["count"] for row in cursor.fetchall()}
+            summary["todays_movements"] = {
+                row["movement_type"]: row["count"] for row in cursor.fetchall()
+            }
 
             # Calculate total labor hours
             cursor = conn.execute(
@@ -241,7 +258,11 @@ class VDCMetricsClient:
                         "avg_time_minutes": round(row["avg_time_minutes"], 1),
                         "vehicle_count": row["vehicle_count"],
                         "severity": round(severity, 2),
-                        "severity_level": "critical" if severity > 2 else "warning" if severity > 1.5 else "minor",
+                        "severity_level": "critical"
+                        if severity > 2
+                        else "warning"
+                        if severity > 1.5
+                        else "minor",
                     }
                 )
 
@@ -283,7 +304,9 @@ class VDCMetricsClient:
                 "shift": shift,
                 "total_labor_hours": round(total_hours, 1),
                 "completed_labor_hours": round(completed_hours, 1),
-                "percent_complete": round((completed_hours / total_hours * 100) if total_hours > 0 else 0, 1),
+                "percent_complete": round(
+                    (completed_hours / total_hours * 100) if total_hours > 0 else 0, 1
+                ),
                 "total_vehicles": row["total_vehicles"] or 0,
                 "completed_vehicles": row["completed_vehicles"] or 0,
             }
@@ -334,7 +357,10 @@ class VDCMetricsClient:
             if isinstance(progress, dict) and "percent_complete" in progress:
                 # Alert if behind schedule (assuming linear progress)
                 # This is a simplified check
-                if progress["percent_complete"] < 50 and progress["total_labor_hours"] > 0:
+                if (
+                    progress["percent_complete"] < 50
+                    and progress["total_labor_hours"] > 0
+                ):
                     alerts.append(
                         {
                             "type": "shift_progress",
@@ -388,8 +414,12 @@ class VDCMetricsClient:
             shift_data = perf.get(shift_key, {})
             if shift_data and "percent_complete" in shift_data:
                 lines.append(f"\n### {shift_data['shift'].title()} Shift Progress")
-                lines.append(f"- Completed: {shift_data['completed_labor_hours']}/{shift_data['total_labor_hours']} hours ({shift_data['percent_complete']}%)")
-                lines.append(f"- Vehicles: {shift_data['completed_vehicles']}/{shift_data['total_vehicles']}")
+                lines.append(
+                    f"- Completed: {shift_data['completed_labor_hours']}/{shift_data['total_labor_hours']} hours ({shift_data['percent_complete']}%)"
+                )
+                lines.append(
+                    f"- Vehicles: {shift_data['completed_vehicles']}/{shift_data['total_vehicles']}"
+                )
 
         # Alerts
         if summary.alerts:
@@ -402,7 +432,9 @@ class VDCMetricsClient:
         if app.get("timing"):
             lines.append("\n## Application Performance (Last Hour)")
             for name, timing in list(app["timing"].items())[:5]:  # Top 5 slowest
-                lines.append(f"- {name}: avg {timing['avg_ms']}ms (min: {timing['min_ms']}ms, max: {timing['max_ms']}ms)")
+                lines.append(
+                    f"- {name}: avg {timing['avg_ms']}ms (min: {timing['min_ms']}ms, max: {timing['max_ms']}ms)"
+                )
 
         return "\n".join(lines)
 

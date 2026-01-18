@@ -115,7 +115,9 @@ def demo_operational_pipeline():
 
     print(f"\nPipeline Status: {result.status}")
     print(f"Duration: {sum(s.duration_ms for s in result.stages):.0f}ms")
-    print(f"Stages Completed: {len([s for s in result.stages if s.status == 'success'])}/{len(result.stages)}")
+    print(
+        f"Stages Completed: {len([s for s in result.stages if s.status == 'success'])}/{len(result.stages)}"
+    )
 
     # Show stage results
     for stage in result.stages:

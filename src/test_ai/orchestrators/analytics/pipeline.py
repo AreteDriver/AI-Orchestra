@@ -56,7 +56,9 @@ class PipelineResult:
             "pipeline_id": self.pipeline_id,
             "status": self.status,
             "started_at": self.started_at.isoformat(),
-            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+            "completed_at": self.completed_at.isoformat()
+            if self.completed_at
+            else None,
             "stages": [
                 {
                     "stage": s.stage.value,
@@ -96,6 +98,7 @@ class AnalyticsPipeline:
         self._claude_client = None
         if use_agents:
             from test_ai.api_clients import ClaudeCodeClient
+
             self._claude_client = ClaudeCodeClient()
 
     def add_stage(
@@ -237,8 +240,7 @@ class PipelineBuilder:
         reporter = ReportGenerator()
 
         return (
-            pipeline
-            .add_stage(PipelineStage.COLLECT, collector.collect)
+            pipeline.add_stage(PipelineStage.COLLECT, collector.collect)
             .add_stage(PipelineStage.ANALYZE, analyzer.analyze)
             .add_agent_stage(
                 PipelineStage.VISUALIZE,
@@ -260,8 +262,7 @@ class PipelineBuilder:
         analyzer = TrendAnalyzer()
 
         return (
-            pipeline
-            .add_stage(PipelineStage.COLLECT, collector.collect)
+            pipeline.add_stage(PipelineStage.COLLECT, collector.collect)
             .add_stage(PipelineStage.ANALYZE, analyzer.analyze)
             .add_agent_stage(
                 PipelineStage.REPORT,
@@ -284,8 +285,7 @@ class PipelineBuilder:
         alerter = AlertGenerator()
 
         return (
-            pipeline
-            .add_stage(PipelineStage.COLLECT, collector.collect)
+            pipeline.add_stage(PipelineStage.COLLECT, collector.collect)
             .add_stage(PipelineStage.ANALYZE, analyzer.analyze)
             .add_stage(PipelineStage.ALERT, alerter.generate)
         )

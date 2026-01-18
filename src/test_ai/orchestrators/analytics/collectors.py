@@ -70,6 +70,7 @@ class VDCCollector(DataCollector):
 
     def __init__(self, metrics_db_path: str = None, logistics_db_path: str = None):
         from test_ai.integrations.vdc_metrics import VDCMetricsClient
+
         self.client = VDCMetricsClient(
             metrics_db_path=metrics_db_path,
             logistics_db_path=logistics_db_path,
@@ -96,7 +97,9 @@ class VDCCollector(DataCollector):
 
         # App performance metrics
         if include_performance:
-            data["app_performance"] = self.client.get_app_performance(performance_minutes)
+            data["app_performance"] = self.client.get_app_performance(
+                performance_minutes
+            )
 
         # Bottleneck detection
         if include_bottlenecks:
@@ -124,6 +127,7 @@ class MetricsCollector(DataCollector):
 
     def __init__(self, metrics_db_path: str = None):
         from test_ai.integrations.vdc_metrics import VDCMetricsClient
+
         self.client = VDCMetricsClient(metrics_db_path=metrics_db_path)
 
     def collect(self, context: Any, config: dict) -> CollectedData:

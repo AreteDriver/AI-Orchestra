@@ -39,7 +39,9 @@ class StepMetrics:
             "step_type": self.step_type,
             "action": self.action,
             "started_at": self.started_at.isoformat(),
-            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+            "completed_at": self.completed_at.isoformat()
+            if self.completed_at
+            else None,
             "duration_ms": self.duration_ms,
             "status": self.status,
             "error": self.error,
@@ -95,7 +97,9 @@ class WorkflowMetrics:
             "execution_id": self.execution_id,
             "workflow_name": self.workflow_name,
             "started_at": self.started_at.isoformat(),
-            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+            "completed_at": self.completed_at.isoformat()
+            if self.completed_at
+            else None,
             "duration_ms": self.duration_ms,
             "status": self.status,
             "total_steps": self.total_steps,
@@ -179,9 +183,15 @@ class MetricsStore:
                 FOREIGN KEY (execution_id) REFERENCES workflow_executions(execution_id)
             )
         """)
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_wf_exec_id ON workflow_executions(execution_id)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_wf_started ON workflow_executions(started_at)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_step_exec ON step_executions(execution_id)")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_wf_exec_id ON workflow_executions(execution_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_wf_started ON workflow_executions(started_at)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_step_exec ON step_executions(execution_id)"
+        )
         conn.commit()
         conn.close()
 
@@ -191,7 +201,9 @@ class MetricsStore:
             self._workflows[workflow.execution_id] = workflow
             self._counters["workflows_started"] += 1
 
-    def complete_workflow(self, execution_id: str, status: str, error: str | None = None):
+    def complete_workflow(
+        self, execution_id: str, status: str, error: str | None = None
+    ):
         """Record workflow completion."""
         with self._lock:
             if execution_id in self._workflows:
@@ -318,7 +330,9 @@ class MetricsStore:
             success_rate = 0
             total = self._counters["workflows_completed"]
             if total > 0:
-                success_rate = ((total - self._counters["workflows_failed"]) / total) * 100
+                success_rate = (
+                    (total - self._counters["workflows_failed"]) / total
+                ) * 100
 
             return {
                 "active_workflows": len(self._workflows),
@@ -352,7 +366,9 @@ class MetricsStore:
         for key, stats in step_stats.items():
             result[key] = {
                 "count": stats["count"],
-                "avg_ms": round(stats["total_ms"] / stats["count"], 2) if stats["count"] > 0 else 0,
+                "avg_ms": round(stats["total_ms"] / stats["count"], 2)
+                if stats["count"] > 0
+                else 0,
                 "failure_rate": round((stats["failures"] / stats["count"]) * 100, 1)
                 if stats["count"] > 0
                 else 0,

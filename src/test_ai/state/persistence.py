@@ -223,8 +223,12 @@ class StatePersistence:
                 "id": row["id"],
                 "stage": row["stage"],
                 "status": row["status"],
-                "input_data": json.loads(row["input_data"]) if row["input_data"] else None,
-                "output_data": json.loads(row["output_data"]) if row["output_data"] else None,
+                "input_data": json.loads(row["input_data"])
+                if row["input_data"]
+                else None,
+                "output_data": json.loads(row["output_data"])
+                if row["output_data"]
+                else None,
                 "tokens_used": row["tokens_used"],
                 "duration_ms": row["duration_ms"],
                 "created_at": row["created_at"],
@@ -255,8 +259,12 @@ class StatePersistence:
                 "id": row["id"],
                 "stage": row["stage"],
                 "status": row["status"],
-                "input_data": json.loads(row["input_data"]) if row["input_data"] else None,
-                "output_data": json.loads(row["output_data"]) if row["output_data"] else None,
+                "input_data": json.loads(row["input_data"])
+                if row["input_data"]
+                else None,
+                "output_data": json.loads(row["output_data"])
+                if row["output_data"]
+                else None,
                 "tokens_used": row["tokens_used"],
                 "duration_ms": row["duration_ms"],
                 "created_at": row["created_at"],
@@ -436,7 +444,9 @@ class StatePersistence:
             ).fetchone()[0]
             by_status[status.value] = count
 
-        checkpoint_count = conn.execute("SELECT COUNT(*) FROM checkpoints").fetchone()[0]
+        checkpoint_count = conn.execute("SELECT COUNT(*) FROM checkpoints").fetchone()[
+            0
+        ]
 
         return {
             "total_workflows": total,

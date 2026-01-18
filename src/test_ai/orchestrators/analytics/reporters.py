@@ -175,21 +175,25 @@ class ReportGenerator:
 
         # Status section
         status_content = self._format_status(severity, findings)
-        sections.append(ReportSection(
-            title="Operations Status",
-            content=status_content,
-            priority=100,
-        ))
+        sections.append(
+            ReportSection(
+                title="Operations Status",
+                content=status_content,
+                priority=100,
+            )
+        )
         summary_parts.append(f"Status: {severity.upper()}")
 
         # Findings section
         if findings:
             findings_content = self._format_findings(findings)
-            sections.append(ReportSection(
-                title="Key Findings",
-                content=findings_content,
-                priority=90,
-            ))
+            sections.append(
+                ReportSection(
+                    title="Key Findings",
+                    content=findings_content,
+                    priority=90,
+                )
+            )
 
             critical_count = sum(1 for f in findings if f.get("severity") == "critical")
             warning_count = sum(1 for f in findings if f.get("severity") == "warning")
@@ -201,23 +205,29 @@ class ReportGenerator:
         # Metrics section
         if metrics:
             metrics_content = self._format_metrics(metrics)
-            sections.append(ReportSection(
-                title="Metrics Summary",
-                content=metrics_content,
-                priority=80,
-            ))
+            sections.append(
+                ReportSection(
+                    title="Metrics Summary",
+                    content=metrics_content,
+                    priority=80,
+                )
+            )
 
         # Recommendations section
         if include_recommendations and recommendations:
             rec_content = self._format_recommendations(recommendations)
-            sections.append(ReportSection(
-                title="Recommended Actions",
-                content=rec_content,
-                priority=70,
-            ))
+            sections.append(
+                ReportSection(
+                    title="Recommended Actions",
+                    content=rec_content,
+                    priority=70,
+                )
+            )
             summary_parts.append(f"{len(recommendations)} action items")
 
-        summary = ". ".join(summary_parts) + "." if summary_parts else "No issues detected."
+        summary = (
+            ". ".join(summary_parts) + "." if summary_parts else "No issues detected."
+        )
 
         return GeneratedReport(
             reporter="report_generator",

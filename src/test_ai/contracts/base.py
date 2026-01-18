@@ -24,7 +24,9 @@ class AgentRole(Enum):
 class ContractViolation(Exception):
     """Raised when agent input/output violates its contract."""
 
-    def __init__(self, message: str, role: str = None, field: str = None, details: dict = None):
+    def __init__(
+        self, message: str, role: str = None, field: str = None, details: dict = None
+    ):
         self.role = role
         self.field = field
         self.details = details or {}
@@ -75,7 +77,7 @@ class AgentContract:
             raise ContractViolation(
                 f"{self.role.value} input invalid: {e.message}",
                 role=self.role.value,
-                field=e.json_path if hasattr(e, 'json_path') else str(e.path),
+                field=e.json_path if hasattr(e, "json_path") else str(e.path),
                 details={
                     "schema_path": list(e.schema_path) if e.schema_path else [],
                     "validator": e.validator,
@@ -102,7 +104,7 @@ class AgentContract:
             raise ContractViolation(
                 f"{self.role.value} output invalid: {e.message}",
                 role=self.role.value,
-                field=e.json_path if hasattr(e, 'json_path') else str(e.path),
+                field=e.json_path if hasattr(e, "json_path") else str(e.path),
                 details={
                     "schema_path": list(e.schema_path) if e.schema_path else [],
                     "validator": e.validator,

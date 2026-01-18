@@ -367,9 +367,7 @@ def render_logs_page():
 
 def main():
     """Main dashboard application."""
-    st.set_page_config(
-        page_title="Gorgon Orchestrator", page_icon="🐍", layout="wide"
-    )
+    st.set_page_config(page_title="Gorgon Orchestrator", page_icon="🐍", layout="wide")
 
     # Initialize session state
     if "page" not in st.session_state:

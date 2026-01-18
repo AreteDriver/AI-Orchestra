@@ -114,35 +114,50 @@ class ChartGenerator:
 
         # Generate status gauge
         if severity:
-            severity_value = {"info": 100, "warning": 60, "critical": 20}.get(severity, 50)
-            charts.append(ChartSpec(
-                chart_type="gauge",
-                title="Operations Status",
-                data={"value": severity_value, "label": severity.upper()},
-                config={"color": self._severity_color(severity)},
-            ))
+            severity_value = {"info": 100, "warning": 60, "critical": 20}.get(
+                severity, 50
+            )
+            charts.append(
+                ChartSpec(
+                    chart_type="gauge",
+                    title="Operations Status",
+                    data={"value": severity_value, "label": severity.upper()},
+                    config={"color": self._severity_color(severity)},
+                )
+            )
 
         # Generate metrics bar chart
         if metrics:
-            numeric_metrics = {k: v for k, v in metrics.items() if isinstance(v, (int, float))}
+            numeric_metrics = {
+                k: v for k, v in metrics.items() if isinstance(v, (int, float))
+            }
             if numeric_metrics:
-                charts.append(ChartSpec(
-                    chart_type="bar",
-                    title="Key Metrics",
-                    data=numeric_metrics,
-                    config={"orientation": "horizontal"},
-                ))
+                charts.append(
+                    ChartSpec(
+                        chart_type="bar",
+                        title="Key Metrics",
+                        data=numeric_metrics,
+                        config={"orientation": "horizontal"},
+                    )
+                )
 
         # Generate findings table
         if findings:
-            charts.append(ChartSpec(
-                chart_type="table",
-                title="Findings Summary",
-                data={"rows": [
-                    {"severity": f.get("severity", "info"), "message": f.get("message", "")}
-                    for f in findings
-                ]},
-            ))
+            charts.append(
+                ChartSpec(
+                    chart_type="table",
+                    title="Findings Summary",
+                    data={
+                        "rows": [
+                            {
+                                "severity": f.get("severity", "info"),
+                                "message": f.get("message", ""),
+                            }
+                            for f in findings
+                        ]
+                    },
+                )
+            )
 
         # Generate Streamlit code if requested
         streamlit_code = ""
@@ -181,12 +196,16 @@ class ChartGenerator:
 
         # Metrics display
         if metrics:
-            numeric_metrics = {k: v for k, v in metrics.items() if isinstance(v, (int, float))}
+            numeric_metrics = {
+                k: v for k, v in metrics.items() if isinstance(v, (int, float))
+            }
             if numeric_metrics:
                 lines.append("# Key Metrics")
                 lines.append(f"cols = st.columns({min(len(numeric_metrics), 4)})")
                 for i, (key, value) in enumerate(list(numeric_metrics.items())[:4]):
-                    lines.append(f"cols[{i}].metric('{key.replace('_', ' ').title()}', '{value}')")
+                    lines.append(
+                        f"cols[{i}].metric('{key.replace('_', ' ').title()}', '{value}')"
+                    )
                 lines.append("")
 
         # Findings table
@@ -198,7 +217,9 @@ class ChartGenerator:
                 msg = f.get("message", "").replace("'", "\\'")
                 lines.append(f"    {{'Severity': '{sev}', 'Finding': '{msg}'}},")
             lines.append("]")
-            lines.append("st.dataframe(pd.DataFrame(findings_data), use_container_width=True)")
+            lines.append(
+                "st.dataframe(pd.DataFrame(findings_data), use_container_width=True)"
+            )
             lines.append("")
 
         return "\n".join(lines)
@@ -258,14 +279,16 @@ class DashboardBuilder:
             ")",
             "",
             f'st.title("{dashboard.title}")',
-            'st.caption(f"Last updated: {datetime.now().strftime(\'%I:%M %p\')}")',
+            "st.caption(f\"Last updated: {datetime.now().strftime('%I:%M %p')}\")",
             "",
         ]
 
         # Add auto-refresh if configured
         if dashboard.refresh_interval > 0:
             lines.append(f"# Auto-refresh every {dashboard.refresh_interval} seconds")
-            lines.append(f'st.markdown(\'<meta http-equiv="refresh" content="{dashboard.refresh_interval}">\', unsafe_allow_html=True)')
+            lines.append(
+                f'st.markdown(\'<meta http-equiv="refresh" content="{dashboard.refresh_interval}">\', unsafe_allow_html=True)'
+            )
             lines.append("")
 
         # Add chart code

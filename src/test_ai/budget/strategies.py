@@ -58,7 +58,9 @@ class EqualAllocation(AllocationStrategy):
     ) -> AllocationResult:
         """Allocate budget equally."""
         if not agents:
-            return AllocationResult(allocations={}, total_allocated=0, unallocated=total_budget)
+            return AllocationResult(
+                allocations={}, total_allocated=0, unallocated=total_budget
+            )
 
         per_agent = total_budget // len(agents)
         allocations = {agent["id"]: per_agent for agent in agents}
@@ -97,7 +99,9 @@ class PriorityAllocation(AllocationStrategy):
     ) -> AllocationResult:
         """Allocate based on priority."""
         if not agents:
-            return AllocationResult(allocations={}, total_allocated=0, unallocated=total_budget)
+            return AllocationResult(
+                allocations={}, total_allocated=0, unallocated=total_budget
+            )
 
         # Calculate base allocation
         base_per_agent = int(total_budget * self.base_share / len(agents))
@@ -117,7 +121,11 @@ class PriorityAllocation(AllocationStrategy):
         notes = []
         for agent, priority in zip(agents, priorities):
             agent_id = agent["id"]
-            priority_share = int((priority / total_priority) * remaining) if total_priority > 0 else 0
+            priority_share = (
+                int((priority / total_priority) * remaining)
+                if total_priority > 0
+                else 0
+            )
             allocation = base_per_agent + priority_share
             allocations[agent_id] = allocation
             notes.append(f"{agent_id}: priority={priority}, tokens={allocation}")
@@ -166,7 +174,9 @@ class AdaptiveAllocation(AllocationStrategy):
             agent_totals[agent_id].append(tokens)
 
         for agent_id, values in agent_totals.items():
-            self._historical_averages[agent_id] = sum(values) // len(values) if values else 5000
+            self._historical_averages[agent_id] = (
+                sum(values) // len(values) if values else 5000
+            )
 
     def name(self) -> str:
         return "adaptive"
@@ -179,7 +189,9 @@ class AdaptiveAllocation(AllocationStrategy):
     ) -> AllocationResult:
         """Allocate based on estimates and history."""
         if not agents:
-            return AllocationResult(allocations={}, total_allocated=0, unallocated=total_budget)
+            return AllocationResult(
+                allocations={}, total_allocated=0, unallocated=total_budget
+            )
 
         # Calculate estimated needs per agent
         estimates = {}
@@ -208,7 +220,9 @@ class AdaptiveAllocation(AllocationStrategy):
             # Add buffer
             buffered = int(estimate * (1 + self.buffer_percent))
             estimates[agent_id] = buffered
-            notes.append(f"{agent_id}: {source} estimate={estimate}, buffered={buffered}")
+            notes.append(
+                f"{agent_id}: {source} estimate={estimate}, buffered={buffered}"
+            )
 
         # Scale if total exceeds budget
         total_estimated = sum(estimates.values())
@@ -269,7 +283,9 @@ class ReservePoolAllocation(AllocationStrategy):
     ) -> AllocationResult:
         """Allocate with reserve pool."""
         if not agents:
-            return AllocationResult(allocations={}, total_allocated=0, unallocated=total_budget)
+            return AllocationResult(
+                allocations={}, total_allocated=0, unallocated=total_budget
+            )
 
         # Split budget into pools
         guaranteed_pool = int(total_budget * self.guaranteed_percent)
@@ -301,11 +317,15 @@ class ReservePoolAllocation(AllocationStrategy):
 
             # Guaranteed + share of flexible
             flexible_share = (
-                int((estimate / total_estimated) * flexible_pool) if total_estimated > 0 else 0
+                int((estimate / total_estimated) * flexible_pool)
+                if total_estimated > 0
+                else 0
             )
             total_allocation = guaranteed_per_agent + flexible_share
             allocations[agent_id] = total_allocation
-            notes.append(f"{agent_id}: guaranteed={guaranteed_per_agent} + flexible={flexible_share}")
+            notes.append(
+                f"{agent_id}: guaranteed={guaranteed_per_agent} + flexible={flexible_share}"
+            )
 
         total_allocated = sum(allocations.values())
 
@@ -338,6 +358,8 @@ def get_strategy(name: str, **kwargs) -> AllocationStrategy:
     }
 
     if name not in strategies:
-        raise ValueError(f"Unknown strategy: {name}. Available: {list(strategies.keys())}")
+        raise ValueError(
+            f"Unknown strategy: {name}. Available: {list(strategies.keys())}"
+        )
 
     return strategies[name](**kwargs)

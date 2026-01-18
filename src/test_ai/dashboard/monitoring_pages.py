@@ -11,14 +11,17 @@ from datetime import datetime
 
 import streamlit as st
 
+
 # Import monitoring components - lazy load to avoid dep issues
 def get_tracker():
     from test_ai.monitoring import get_tracker as _get_tracker
+
     return _get_tracker()
 
 
 def get_agent_tracker():
     from test_ai.monitoring.tracker import AgentTracker
+
     if "agent_tracker" not in st.session_state:
         st.session_state.agent_tracker = AgentTracker()
     return st.session_state.agent_tracker
@@ -75,14 +78,20 @@ def render_monitoring_page():
         st.metric(
             "Success Rate",
             f"{success_rate:.1f}%",
-            delta="Good" if success_rate >= 90 else ("Warning" if success_rate >= 70 else "Critical"),
-            delta_color="normal" if success_rate >= 90 else ("off" if success_rate >= 70 else "inverse"),
+            delta="Good"
+            if success_rate >= 90
+            else ("Warning" if success_rate >= 70 else "Critical"),
+            delta_color="normal"
+            if success_rate >= 90
+            else ("off" if success_rate >= 70 else "inverse"),
         )
     with col4:
         avg_duration = summary.get("avg_duration_ms", 0)
         st.metric(
             "Avg Duration",
-            f"{avg_duration:.0f}ms" if avg_duration < 1000 else f"{avg_duration/1000:.1f}s",
+            f"{avg_duration:.0f}ms"
+            if avg_duration < 1000
+            else f"{avg_duration / 1000:.1f}s",
         )
 
     st.divider()
@@ -104,7 +113,9 @@ def render_monitoring_page():
                         if wf["total_steps"] > 0
                         else 0
                     )
-                    st.progress(progress, f"{wf['completed_steps']}/{wf['total_steps']} steps")
+                    st.progress(
+                        progress, f"{wf['completed_steps']}/{wf['total_steps']} steps"
+                    )
                 with col3:
                     st.markdown(f"Status: **{wf['status']}**")
                 st.divider()
@@ -125,7 +136,9 @@ def render_monitoring_page():
                 with col1:
                     st.write(f"**Status:** {execution['status']}")
                     st.write(f"**Duration:** {execution['duration_ms']:.0f}ms")
-                    st.write(f"**Steps:** {execution['completed_steps']}/{execution['total_steps']}")
+                    st.write(
+                        f"**Steps:** {execution['completed_steps']}/{execution['total_steps']}"
+                    )
                 with col2:
                     st.write(f"**Started:** {execution['started_at']}")
                     st.write(f"**Completed:** {execution.get('completed_at', 'N/A')}")
@@ -162,7 +175,9 @@ def render_agents_page():
     with col2:
         st.metric("Recent Completions", summary["recent_count"])
     with col3:
-        roles_str = ", ".join(f"{k}: {v}" for k, v in summary.get("by_role", {}).items())
+        roles_str = ", ".join(
+            f"{k}: {v}" for k, v in summary.get("by_role", {}).items()
+        )
         st.metric("By Role", roles_str or "None")
 
     st.divider()
@@ -186,15 +201,15 @@ def render_agents_page():
                         margin: 5px;
                         background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
                     ">
-                        <h4 style="color: #00d4ff; margin: 0;">🤖 {agent['role'].title()}</h4>
+                        <h4 style="color: #00d4ff; margin: 0;">🤖 {agent["role"].title()}</h4>
                         <p style="color: #888; font-size: 12px; margin: 5px 0;">
-                            ID: {agent['agent_id'][:12]}...
+                            ID: {agent["agent_id"][:12]}...
                         </p>
                         <p style="color: #4caf50; font-size: 14px;">
-                            ● {agent['status'].upper()}
+                            ● {agent["status"].upper()}
                         </p>
                         <p style="color: #888; font-size: 11px;">
-                            Tasks: {agent.get('tasks_completed', 0)}
+                            Tasks: {agent.get("tasks_completed", 0)}
                         </p>
                     </div>
                     """,
@@ -206,6 +221,7 @@ def render_agents_page():
         # Demo button to simulate agents
         if st.button("Simulate Agent Activity"):
             import uuid
+
             for role in ["planner", "builder", "tester"]:
                 agent_tracker.register_agent(
                     f"agent_{uuid.uuid4().hex[:8]}",
@@ -303,12 +319,14 @@ def render_metrics_page():
         # Create a table
         rows = []
         for step_type, stats in step_perf.items():
-            rows.append({
-                "Step Type": step_type,
-                "Count": stats["count"],
-                "Avg Duration (ms)": f"{stats['avg_ms']:.1f}",
-                "Failure Rate": f"{stats['failure_rate']:.1f}%",
-            })
+            rows.append(
+                {
+                    "Step Type": step_type,
+                    "Count": stats["count"],
+                    "Avg Duration (ms)": f"{stats['avg_ms']:.1f}",
+                    "Failure Rate": f"{stats['failure_rate']:.1f}%",
+                }
+            )
 
         st.table(rows)
     else:

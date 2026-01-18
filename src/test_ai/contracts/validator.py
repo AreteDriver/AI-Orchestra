@@ -183,7 +183,9 @@ class ContractValidator:
         if role == "planner":
             tasks = data.get("tasks", [])
             if len(tasks) > 10:
-                warnings.append(f"Plan has {len(tasks)} tasks - consider breaking into smaller chunks")
+                warnings.append(
+                    f"Plan has {len(tasks)} tasks - consider breaking into smaller chunks"
+                )
             if not data.get("risks"):
                 warnings.append("Plan has no identified risks")
 
@@ -192,7 +194,9 @@ class ContractValidator:
             if len(code) > 10000:
                 warnings.append("Large code output - consider smaller increments")
             if data.get("status") == "partial" and not data.get("notes"):
-                warnings.append("Partial completion without notes explaining what's missing")
+                warnings.append(
+                    "Partial completion without notes explaining what's missing"
+                )
 
         elif role == "tester":
             if data.get("tests_run", 0) == 0:
@@ -203,7 +207,9 @@ class ContractValidator:
 
         elif role == "reviewer":
             if data.get("approved") and data.get("findings"):
-                critical = sum(1 for f in data["findings"] if f.get("severity") == "critical")
+                critical = sum(
+                    1 for f in data["findings"] if f.get("severity") == "critical"
+                )
                 if critical > 0:
                     warnings.append(f"Approved with {critical} critical findings")
 
@@ -270,6 +276,6 @@ def validate_workflow_contracts(workflow_steps: list[dict]) -> list[str]:
                 try:
                     get_contract(role)
                 except ValueError as e:
-                    errors.append(f"Step {i+1} ({step.get('id')}): {e}")
+                    errors.append(f"Step {i + 1} ({step.get('id')}): {e}")
 
     return errors

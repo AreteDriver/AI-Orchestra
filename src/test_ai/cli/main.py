@@ -24,6 +24,7 @@ def get_workflow_engine():
     """Lazy import workflow engine to avoid startup cost."""
     try:
         from test_ai.orchestrator import WorkflowEngine
+
         return WorkflowEngine()
     except ImportError as e:
         console.print(f"[red]Missing dependencies:[/red] {e}")
@@ -35,6 +36,7 @@ def get_tracker():
     """Lazy import execution tracker."""
     try:
         from test_ai.monitoring.tracker import get_tracker as _get_tracker
+
         return _get_tracker()
     except ImportError:
         return None
@@ -48,12 +50,14 @@ def run(
     ),
     var: list[str] = typer.Option(
         [],
-        "--var", "-v",
+        "--var",
+        "-v",
         help="Variables in key=value format (can be repeated)",
     ),
     json_output: bool = typer.Option(
         False,
-        "--json", "-j",
+        "--json",
+        "-j",
         help="Output results as JSON",
     ),
     dry_run: bool = typer.Option(
@@ -100,17 +104,21 @@ def run(
         workflow_data = loaded.model_dump()
 
     # Show workflow info
-    console.print(Panel(
-        f"[bold]{workflow_data.get('name', workflow_id)}[/bold]\n"
-        f"[dim]{workflow_data.get('description', 'No description')}[/dim]",
-        title="Workflow",
-        border_style="blue",
-    ))
+    console.print(
+        Panel(
+            f"[bold]{workflow_data.get('name', workflow_id)}[/bold]\n"
+            f"[dim]{workflow_data.get('description', 'No description')}[/dim]",
+            title="Workflow",
+            border_style="blue",
+        )
+    )
 
     if workflow_data.get("steps"):
         console.print(f"\n[dim]Steps:[/dim] {len(workflow_data['steps'])}")
         for step in workflow_data["steps"]:
-            console.print(f"  • {step['id']} ({step['type']}:{step.get('action', 'N/A')})")
+            console.print(
+                f"  • {step['id']} ({step['type']}:{step.get('action', 'N/A')})"
+            )
 
     if variables:
         console.print("\n[dim]Variables:[/dim]")
@@ -132,13 +140,18 @@ def run(
 
         try:
             # Load and execute
-            wf = engine.load_workflow(workflow_id) if not workflow_path.exists() else None
+            wf = (
+                engine.load_workflow(workflow_id)
+                if not workflow_path.exists()
+                else None
+            )
             if wf:
                 wf.variables = variables
                 result = engine.execute_workflow(wf)
             else:
                 # Execute from file
                 from test_ai.orchestrator import Workflow
+
                 wf = Workflow(**workflow_data)
                 wf.variables = variables
                 result = engine.execute_workflow(wf)
@@ -171,7 +184,8 @@ def run(
 def list_workflows(
     json_output: bool = typer.Option(
         False,
-        "--json", "-j",
+        "--json",
+        "-j",
         help="Output as JSON",
     ),
 ):
@@ -185,7 +199,9 @@ def list_workflows(
 
     if not workflows:
         console.print("[yellow]No workflows found[/yellow]")
-        console.print("\nCreate workflows in the workflows directory or use 'gorgon run <file.json>'")
+        console.print(
+            "\nCreate workflows in the workflows directory or use 'gorgon run <file.json>'"
+        )
         return
 
     list_workflows_table(engine)
@@ -246,7 +262,7 @@ def validate(
     # Validate steps
     step_ids = set()
     for i, step in enumerate(data.get("steps", [])):
-        step_prefix = f"Step {i+1}"
+        step_prefix = f"Step {i + 1}"
 
         if "id" not in step:
             errors.append(f"{step_prefix}: Missing 'id'")
@@ -269,22 +285,28 @@ def validate(
     for step in data.get("steps", []):
         if "next_step" in step and step["next_step"]:
             if step["next_step"] not in step_ids:
-                errors.append(f"Step '{step.get('id', '?')}': next_step '{step['next_step']}' not found")
+                errors.append(
+                    f"Step '{step.get('id', '?')}': next_step '{step['next_step']}' not found"
+                )
 
     # Output results
     if errors:
-        console.print(Panel(
-            "\n".join(f"[red]✗[/red] {e}" for e in errors),
-            title="Errors",
-            border_style="red",
-        ))
+        console.print(
+            Panel(
+                "\n".join(f"[red]✗[/red] {e}" for e in errors),
+                title="Errors",
+                border_style="red",
+            )
+        )
 
     if warnings:
-        console.print(Panel(
-            "\n".join(f"[yellow]![/yellow] {w}" for w in warnings),
-            title="Warnings",
-            border_style="yellow",
-        ))
+        console.print(
+            Panel(
+                "\n".join(f"[yellow]![/yellow] {w}" for w in warnings),
+                title="Warnings",
+                border_style="yellow",
+            )
+        )
 
     if not errors and not warnings:
         console.print(f"[green]✓ Workflow is valid:[/green] {workflow_file}")
@@ -299,7 +321,8 @@ def validate(
 def status(
     json_output: bool = typer.Option(
         False,
-        "--json", "-j",
+        "--json",
+        "-j",
         help="Output as JSON",
     ),
 ):
@@ -318,24 +341,30 @@ def status(
     summary = data.get("summary", {})
 
     # Summary panel
-    console.print(Panel(
-        f"Active Workflows: [bold]{summary.get('active_workflows', 0)}[/bold]\n"
-        f"Total Executions: [bold]{summary.get('total_executions', 0)}[/bold]\n"
-        f"Success Rate: [bold]{summary.get('success_rate', 0):.1f}%[/bold]\n"
-        f"Avg Duration: [bold]{summary.get('avg_duration_ms', 0):.0f}ms[/bold]",
-        title="Gorgon Status",
-        border_style="blue",
-    ))
+    console.print(
+        Panel(
+            f"Active Workflows: [bold]{summary.get('active_workflows', 0)}[/bold]\n"
+            f"Total Executions: [bold]{summary.get('total_executions', 0)}[/bold]\n"
+            f"Success Rate: [bold]{summary.get('success_rate', 0):.1f}%[/bold]\n"
+            f"Avg Duration: [bold]{summary.get('avg_duration_ms', 0):.0f}ms[/bold]",
+            title="Gorgon Status",
+            border_style="blue",
+        )
+    )
 
     # Active workflows
     active = data.get("active_workflows", [])
     if active:
         console.print("\n[bold]Active Workflows:[/bold]")
         for wf in active:
-            progress = wf["completed_steps"] / wf["total_steps"] if wf["total_steps"] > 0 else 0
+            progress = (
+                wf["completed_steps"] / wf["total_steps"]
+                if wf["total_steps"] > 0
+                else 0
+            )
             console.print(
                 f"  • {wf['workflow_name']} ({wf['execution_id'][:12]}...) "
-                f"[dim]{wf['completed_steps']}/{wf['total_steps']} steps ({progress*100:.0f}%)[/dim]"
+                f"[dim]{wf['completed_steps']}/{wf['total_steps']} steps ({progress * 100:.0f}%)[/dim]"
             )
 
     # Recent executions
@@ -368,7 +397,8 @@ def init(
     ),
     output: Optional[Path] = typer.Option(
         None,
-        "--output", "-o",
+        "--output",
+        "-o",
         help="Output file path (default: <name>.json)",
     ),
 ):
@@ -385,18 +415,14 @@ def init(
         "id": workflow_id,
         "name": name,
         "description": f"Workflow: {name}",
-        "variables": {
-            "input": "default value"
-        },
+        "variables": {"input": "default value"},
         "steps": [
             {
                 "id": "step_1",
                 "type": "transform",
                 "action": "format",
-                "params": {
-                    "template": "Processing: {{input}}"
-                },
-                "next_step": "step_2"
+                "params": {"template": "Processing: {{input}}"},
+                "next_step": "step_2",
             },
             {
                 "id": "step_2",
@@ -404,11 +430,11 @@ def init(
                 "action": "execute_agent",
                 "params": {
                     "role": "assistant",
-                    "task": "Analyze the input and provide insights"
+                    "task": "Analyze the input and provide insights",
                 },
-                "next_step": None
-            }
-        ]
+                "next_step": None,
+            },
+        ],
     }
 
     with open(output_path, "w") as f:
