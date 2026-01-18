@@ -8,6 +8,7 @@ import { ExecutionsPage } from '@/pages/Executions';
 import { BudgetPage } from '@/pages/Budget';
 import { ConnectorsPage } from '@/pages/Connectors';
 import { SettingsPage } from '@/pages/Settings';
+import { AgentsPage } from '@/pages/Agents';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -31,24 +32,12 @@ function App() {
             <Route path="budget" element={<BudgetPage />} />
             <Route path="connectors" element={<ConnectorsPage />} />
             <Route path="settings" element={<SettingsPage />} />
-            {/* Placeholder routes */}
-            <Route path="agents" element={<PlaceholderPage title="Agents" />} />
+            <Route path="agents" element={<AgentsPage />} />
           </Route>
         </Routes>
       </BrowserRouter>
       </ThemeProvider>
     </QueryClientProvider>
-  );
-}
-
-function PlaceholderPage({ title }: { title: string }) {
-  return (
-    <div className="flex h-[50vh] items-center justify-center">
-      <div className="text-center">
-        <h1 className="text-2xl font-bold">{title}</h1>
-        <p className="text-muted-foreground">Coming soon...</p>
-      </div>
-    </div>
   );
 }
 
