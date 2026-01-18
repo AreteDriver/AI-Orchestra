@@ -27,6 +27,11 @@ apscheduler = "^3.11.0"
 urllib3 = "^2.6.0"
 pynacl = "^1.6.0"
 pyasn1 = "^0.6.1"
+typer = "^0.15.0"
+rich = "^14.0.0"
+
+[tool.poetry.scripts]
+gorgon = "test_ai.cli:app"
 
 [build-system]
 requires = ["poetry-core"]
