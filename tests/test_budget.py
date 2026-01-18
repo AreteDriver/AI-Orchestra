@@ -2,13 +2,13 @@
 
 import pytest
 import sys
-sys.path.insert(0, 'src')
+
+sys.path.insert(0, "src")
 
 from test_ai.budget import (
     BudgetManager,
     BudgetConfig,
     UsageRecord,
-    AllocationStrategy,
     EqualAllocation,
     PriorityAllocation,
     AdaptiveAllocation,
@@ -63,7 +63,9 @@ class TestBudgetManager:
         manager = BudgetManager(BudgetConfig(total_budget=10000, reserve_tokens=1000))
         assert manager.can_allocate(5000) is True
         assert manager.can_allocate(9000) is True
-        assert manager.can_allocate(9001) is False  # Exceeds available (10000 - 1000 reserve)
+        assert (
+            manager.can_allocate(9001) is False
+        )  # Exceeds available (10000 - 1000 reserve)
 
     def test_can_allocate_per_agent_limit(self):
         """Per-agent limit is enforced."""

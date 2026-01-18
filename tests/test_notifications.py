@@ -1,8 +1,8 @@
 """Tests for the notifications module."""
 
-import pytest
 import sys
-sys.path.insert(0, 'src')
+
+sys.path.insert(0, "src")
 
 from test_ai.notifications import (
     Notifier,
@@ -140,18 +140,22 @@ class TestNotifier:
         notifier.set_filter(EventType.STEP_FAILED, False)
 
         # This should be filtered
-        notifier.notify(NotificationEvent(
-            event_type=EventType.STEP_FAILED,
-            workflow_name="test",
-            message="Step failed",
-        ))
+        notifier.notify(
+            NotificationEvent(
+                event_type=EventType.STEP_FAILED,
+                workflow_name="test",
+                message="Step failed",
+            )
+        )
 
         # This should go through
-        notifier.notify(NotificationEvent(
-            event_type=EventType.WORKFLOW_COMPLETED,
-            workflow_name="test",
-            message="Done",
-        ))
+        notifier.notify(
+            NotificationEvent(
+                event_type=EventType.WORKFLOW_COMPLETED,
+                workflow_name="test",
+                message="Done",
+            )
+        )
 
         assert len(channel.sent) == 1
         assert channel.sent[0].event_type == EventType.WORKFLOW_COMPLETED
@@ -258,7 +262,9 @@ class TestSlackChannel:
     def test_event_emojis(self):
         """Events map to emojis."""
         channel = SlackChannel(webhook_url="https://example.com")
-        assert ":white_check_mark:" in channel._event_emoji(EventType.WORKFLOW_COMPLETED)
+        assert ":white_check_mark:" in channel._event_emoji(
+            EventType.WORKFLOW_COMPLETED
+        )
         assert ":x:" in channel._event_emoji(EventType.WORKFLOW_FAILED)
 
 

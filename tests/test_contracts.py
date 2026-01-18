@@ -2,20 +2,16 @@
 
 import pytest
 import sys
-sys.path.insert(0, 'src')
+
+sys.path.insert(0, "src")
 
 from test_ai.contracts import (
     AgentContract,
     AgentRole,
     ContractViolation,
     get_contract,
-    PLANNER_CONTRACT,
-    BUILDER_CONTRACT,
-    TESTER_CONTRACT,
-    REVIEWER_CONTRACT,
 )
 from test_ai.contracts.validator import ContractValidator, ValidationResult
-from test_ai.contracts.definitions import list_contracts
 
 
 class TestAgentRole:
@@ -119,7 +115,12 @@ class TestGetContract:
 
     def test_core_roles_have_contracts(self):
         """Core AgentRole values have contracts defined."""
-        core_roles = [AgentRole.PLANNER, AgentRole.BUILDER, AgentRole.TESTER, AgentRole.REVIEWER]
+        core_roles = [
+            AgentRole.PLANNER,
+            AgentRole.BUILDER,
+            AgentRole.TESTER,
+            AgentRole.REVIEWER,
+        ]
         for role in core_roles:
             contract = get_contract(role)
             assert contract is not None
@@ -145,11 +146,14 @@ class TestContractValidator:
     def test_validate_output(self):
         """Output validation works."""
         validator = ContractValidator(strict=False)
-        result = validator.validate_output("builder", {
-            "code": "print('hello')",
-            "files_created": ["main.py"],
-            "status": "complete",
-        })
+        result = validator.validate_output(
+            "builder",
+            {
+                "code": "print('hello')",
+                "files_created": ["main.py"],
+                "status": "complete",
+            },
+        )
         assert result.valid is True
 
     def test_validate_handoff(self):
@@ -171,11 +175,14 @@ class TestContractValidator:
         """Validator tracks validation history."""
         validator = ContractValidator(strict=False)
         validator.validate_input("planner", {"request": "test", "context": {}})
-        validator.validate_output("planner", {
-            "tasks": [{"id": "1", "description": "Task", "dependencies": []}],
-            "architecture": "Simple",
-            "success_criteria": ["Pass"],
-        })
+        validator.validate_output(
+            "planner",
+            {
+                "tasks": [{"id": "1", "description": "Task", "dependencies": []}],
+                "architecture": "Simple",
+                "success_criteria": ["Pass"],
+            },
+        )
         history = validator.get_history()
         assert len(history) == 2
 

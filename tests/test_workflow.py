@@ -4,7 +4,8 @@ import pytest
 import tempfile
 import os
 import sys
-sys.path.insert(0, 'src')
+
+sys.path.insert(0, "src")
 
 from test_ai.workflow import (
     WorkflowConfig,
@@ -14,7 +15,6 @@ from test_ai.workflow import (
     validate_workflow,
     list_workflows,
     WorkflowExecutor,
-    ExecutionResult,
 )
 from test_ai.workflow.executor import StepStatus
 
@@ -421,7 +421,13 @@ class TestWorkflowExecutor:
                     params={"command": "echo ${value}"},
                 ),
             ],
-            inputs={"value": {"type": "string", "required": True, "default": "default_value"}},
+            inputs={
+                "value": {
+                    "type": "string",
+                    "required": True,
+                    "default": "default_value",
+                }
+            },
         )
         executor = WorkflowExecutor()
         result = executor.execute(workflow, inputs={})
@@ -430,6 +436,7 @@ class TestWorkflowExecutor:
 
     def test_register_custom_handler(self):
         """Can register custom step handlers."""
+
         def custom_handler(step, context):
             return {"custom": True, "step_id": step.id}
 

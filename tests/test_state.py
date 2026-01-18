@@ -4,7 +4,8 @@ import pytest
 import tempfile
 import os
 import sys
-sys.path.insert(0, 'src')
+
+sys.path.insert(0, "src")
 
 from test_ai.state import StatePersistence, WorkflowStatus, CheckpointManager
 
@@ -196,7 +197,9 @@ class TestCheckpointManager:
             ctx.output_data = {"plan": "..."}
             ctx.tokens_used = 100
 
-        checkpoints = manager.persistence.get_all_checkpoints(manager.current_workflow_id)
+        checkpoints = manager.persistence.get_all_checkpoints(
+            manager.current_workflow_id
+        )
         assert len(checkpoints) == 1
         assert checkpoints[0]["stage"] == "planning"
         assert checkpoints[0]["tokens_used"] == 100
