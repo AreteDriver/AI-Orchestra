@@ -13,6 +13,7 @@ from test_ai.api_clients import (
     NotionClientWrapper,
     GmailClient,
     ClaudeCodeClient,
+    GeminiClient,
 )
 
 
@@ -25,6 +26,7 @@ class StepType(str, Enum):
     GMAIL = "gmail"
     TRANSFORM = "transform"
     CLAUDE_CODE = "claude_code"
+    GEMINI = "gemini"
 
 
 class WorkflowStep(BaseModel):
@@ -73,6 +75,7 @@ class WorkflowEngine:
         self.notion_client = NotionClientWrapper()
         self.gmail_client = GmailClient()
         self.claude_code_client = ClaudeCodeClient()
+        self.gemini_client = GeminiClient()
 
     def execute_workflow(self, workflow: Workflow) -> WorkflowResult:
         """Execute a workflow."""
@@ -126,6 +129,8 @@ class WorkflowEngine:
             return self._execute_transform_step(step.action, params, context)
         elif step.type == StepType.CLAUDE_CODE:
             return self._execute_claude_code_step(step.action, params)
+        elif step.type == StepType.GEMINI:
+            return self._execute_gemini_step(step.action, params)
         else:
             raise ValueError(f"Unknown step type: {step.type}")
 
@@ -200,6 +205,19 @@ class WorkflowEngine:
             return self.claude_code_client.execute_cli_command(**params)
         else:
             raise ValueError(f"Unknown Claude Code action: {action}")
+
+    def _execute_gemini_step(self, action: str, params: Dict) -> Any:
+        """Execute a Gemini step."""
+        if action == "generate_completion":
+            return self.gemini_client.generate_completion(**params)
+        elif action == "review_code":
+            return self.gemini_client.review_code(**params)
+        elif action == "summarize":
+            return self.gemini_client.summarize_text(params.get("text", ""))
+        elif action == "generate_sop":
+            return self.gemini_client.generate_sop(params.get("task_description", ""))
+        else:
+            raise ValueError(f"Unknown Gemini action: {action}")
 
     def _interpolate_params(self, params: Dict, context: Dict) -> Dict:
         """Interpolate context variables in parameters."""
