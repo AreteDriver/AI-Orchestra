@@ -241,7 +241,9 @@ class ScheduleManager:
                         else None,
                         json.dumps(schedule.variables) if schedule.variables else None,
                         schedule.status.value,
-                        schedule.created_at.isoformat() if schedule.created_at else None,
+                        schedule.created_at.isoformat()
+                        if schedule.created_at
+                        else None,
                         schedule.last_run.isoformat() if schedule.last_run else None,
                         schedule.next_run.isoformat() if schedule.next_run else None,
                         schedule.run_count,
@@ -583,7 +585,8 @@ class ScheduleManager:
                     ScheduleExecutionLog(
                         schedule_id=row["schedule_id"],
                         workflow_id=row["workflow_id"],
-                        executed_at=_parse_datetime(row.get("executed_at")) or datetime.now(),
+                        executed_at=_parse_datetime(row.get("executed_at"))
+                        or datetime.now(),
                         status=row["status"],
                         duration_seconds=row.get("duration_seconds", 0),
                         error=row.get("error"),

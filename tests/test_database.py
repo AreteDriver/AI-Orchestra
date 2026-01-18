@@ -8,7 +8,7 @@ import pytest
 
 sys.path.insert(0, "src")
 
-from test_ai.state.backends import SQLiteBackend, create_backend
+from test_ai.state.backends import SQLiteBackend
 from test_ai.state.database import get_database, reset_database
 
 
@@ -31,6 +31,7 @@ class TestGetDatabase:
 
             # Clear settings cache
             from test_ai.config import get_settings
+
             get_settings.cache_clear()
 
             backend = get_database()
@@ -43,6 +44,7 @@ class TestGetDatabase:
             monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db_path}")
 
             from test_ai.config import get_settings
+
             get_settings.cache_clear()
 
             backend1 = get_database()
@@ -56,6 +58,7 @@ class TestGetDatabase:
             monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db_path}")
 
             from test_ai.config import get_settings
+
             get_settings.cache_clear()
 
             backend1 = get_database()
@@ -131,10 +134,14 @@ class TestMigrations:
         assert len(applied) == 2
 
         # Verify tables were created
-        users = backend.fetchall("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
+        users = backend.fetchall(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='users'"
+        )
         assert len(users) == 1
 
-        posts = backend.fetchall("SELECT name FROM sqlite_master WHERE type='table' AND name='posts'")
+        posts = backend.fetchall(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='posts'"
+        )
         assert len(posts) == 1
 
     def test_run_migrations_skips_applied(self, backend, migrations_dir, monkeypatch):
@@ -158,7 +165,9 @@ class TestMigrations:
         monkeypatch.setattr(migrations, "MIGRATIONS_DIR", migrations_dir)
         migrations.run_migrations(backend)
 
-        rows = backend.fetchall("SELECT version FROM schema_migrations ORDER BY version")
+        rows = backend.fetchall(
+            "SELECT version FROM schema_migrations ORDER BY version"
+        )
         versions = [r["version"] for r in rows]
 
         assert "001" in versions

@@ -304,9 +304,7 @@ class WebhookManager:
                 self.backend.execute(
                     "DELETE FROM webhook_logs WHERE webhook_id = ?", (webhook_id,)
                 )
-                self.backend.execute(
-                    "DELETE FROM webhooks WHERE id = ?", (webhook_id,)
-                )
+                self.backend.execute("DELETE FROM webhooks WHERE id = ?", (webhook_id,))
         except Exception as e:
             logger.error(f"Failed to delete webhook {webhook_id} from database: {e}")
 
@@ -504,7 +502,8 @@ class WebhookManager:
                     WebhookTriggerLog(
                         webhook_id=row["webhook_id"],
                         workflow_id=row["workflow_id"],
-                        triggered_at=_parse_datetime(row.get("triggered_at")) or datetime.now(),
+                        triggered_at=_parse_datetime(row.get("triggered_at"))
+                        or datetime.now(),
                         source_ip=row.get("source_ip"),
                         payload_size=row.get("payload_size", 0),
                         status=row["status"],

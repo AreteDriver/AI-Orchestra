@@ -11,7 +11,7 @@ import pytest
 sys.path.insert(0, "src")
 
 from test_ai.state.backends import SQLiteBackend
-from test_ai.jobs.job_manager import JobManager, Job, JobStatus
+from test_ai.jobs.job_manager import JobManager, JobStatus
 
 
 class TestJobManager:
@@ -40,7 +40,10 @@ class TestJobManager:
                 mock_result = MagicMock()
                 mock_result.status = "completed"
                 mock_result.errors = []
-                mock_result.model_dump.return_value = {"status": "completed", "output": "test"}
+                mock_result.model_dump.return_value = {
+                    "status": "completed",
+                    "output": "test",
+                }
                 mock_engine.return_value.execute_workflow.return_value = mock_result
 
                 manager = JobManager(backend=backend, max_workers=2)
@@ -117,6 +120,7 @@ class TestJobManager:
 
         # Wait for jobs to complete
         import time
+
         time.sleep(0.2)
 
         # Manually update status for testing
@@ -239,6 +243,7 @@ class TestJobManager:
 
         # Wait for jobs to complete
         import time
+
         time.sleep(0.2)
 
         # Set specific statuses for testing

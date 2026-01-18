@@ -37,13 +37,18 @@ class TestScheduleManager:
     @pytest.fixture
     def manager(self, backend):
         """Create a ScheduleManager with mocked workflow engine and scheduler."""
-        with patch("test_ai.scheduler.schedule_manager.get_database", return_value=backend):
-            with patch("test_ai.scheduler.schedule_manager.WorkflowEngine") as mock_engine:
+        with patch(
+            "test_ai.scheduler.schedule_manager.get_database", return_value=backend
+        ):
+            with patch(
+                "test_ai.scheduler.schedule_manager.WorkflowEngine"
+            ) as mock_engine:
                 mock_engine.return_value.load_workflow.return_value = MagicMock()
                 manager = ScheduleManager(backend=backend)
 
                 # Mock the scheduler's get_job to return a mock with next_run_time
                 original_get_job = manager.scheduler.get_job
+
                 def mock_get_job(job_id):
                     job = original_get_job(job_id)
                     if job is not None:
@@ -52,6 +57,7 @@ class TestScheduleManager:
                         mock_job.next_run_time = datetime.now()
                         return mock_job
                     return job
+
                 manager.scheduler.get_job = mock_get_job
 
                 yield manager
@@ -88,7 +94,9 @@ class TestScheduleManager:
         assert result is True
 
         # Verify in database
-        row = backend.fetchone("SELECT * FROM schedules WHERE id = ?", ("test-schedule",))
+        row = backend.fetchone(
+            "SELECT * FROM schedules WHERE id = ?", ("test-schedule",)
+        )
         assert row is not None
         assert row["workflow_id"] == "test-workflow"
         assert row["name"] == "Test Schedule"
@@ -108,7 +116,9 @@ class TestScheduleManager:
         assert result is True
 
         # Verify in database
-        row = backend.fetchone("SELECT * FROM schedules WHERE id = ?", ("cron-schedule",))
+        row = backend.fetchone(
+            "SELECT * FROM schedules WHERE id = ?", ("cron-schedule",)
+        )
         assert row is not None
         assert row["schedule_type"] == "cron"
 
@@ -326,6 +336,7 @@ class TestScheduleManager:
             def mock_scheduler_get_job(manager):
                 """Patch scheduler.get_job to return mock with next_run_time."""
                 original = manager.scheduler.get_job
+
                 def patched(job_id):
                     job = original(job_id)
                     if job:
@@ -333,6 +344,7 @@ class TestScheduleManager:
                         mock_job.next_run_time = datetime.now()
                         return mock_job
                     return job
+
                 manager.scheduler.get_job = patched
 
             # Create schedule with first manager

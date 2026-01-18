@@ -78,9 +78,7 @@ class JobManager:
         CREATE INDEX IF NOT EXISTS idx_jobs_created ON jobs(created_at DESC);
     """
 
-    def __init__(
-        self, backend: DatabaseBackend | None = None, max_workers: int = 4
-    ):
+    def __init__(self, backend: DatabaseBackend | None = None, max_workers: int = 4):
         self.settings = get_settings()
         self.backend = backend or get_database()
         self.workflow_engine = WorkflowEngine()
@@ -114,9 +112,7 @@ class JobManager:
                     created_at=_parse_datetime(row.get("created_at")),
                     started_at=_parse_datetime(row.get("started_at")),
                     completed_at=_parse_datetime(row.get("completed_at")),
-                    variables=json.loads(row["variables"])
-                    if row["variables"]
-                    else {},
+                    variables=json.loads(row["variables"]) if row["variables"] else {},
                     result=json.loads(row["result"]) if row["result"] else None,
                     error=row["error"],
                     progress=row["progress"],
@@ -336,9 +332,7 @@ class JobManager:
             # Remove from database
             try:
                 with self.backend.transaction():
-                    self.backend.execute(
-                        "DELETE FROM jobs WHERE id = ?", (job_id,)
-                    )
+                    self.backend.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
             except Exception as e:
                 logger.error(f"Failed to delete job {job_id} from database: {e}")
 

@@ -14,7 +14,6 @@ from test_ai.state.backends import SQLiteBackend
 from test_ai.webhooks.webhook_manager import (
     WebhookManager,
     Webhook,
-    WebhookStatus,
     PayloadMapping,
     WebhookTriggerLog,
 )
@@ -35,8 +34,12 @@ class TestWebhookManager:
     @pytest.fixture
     def manager(self, backend):
         """Create a WebhookManager with mocked workflow engine."""
-        with patch("test_ai.webhooks.webhook_manager.get_database", return_value=backend):
-            with patch("test_ai.webhooks.webhook_manager.WorkflowEngine") as mock_engine:
+        with patch(
+            "test_ai.webhooks.webhook_manager.get_database", return_value=backend
+        ):
+            with patch(
+                "test_ai.webhooks.webhook_manager.WorkflowEngine"
+            ) as mock_engine:
                 mock_engine.return_value.load_workflow.return_value = MagicMock()
                 manager = WebhookManager(backend=backend)
                 yield manager
@@ -83,7 +86,11 @@ class TestWebhookManager:
             workflow_id="test-workflow",
             payload_mappings=[
                 PayloadMapping(source_path="data.user.id", target_variable="user_id"),
-                PayloadMapping(source_path="data.action", target_variable="action", default="unknown"),
+                PayloadMapping(
+                    source_path="data.action",
+                    target_variable="action",
+                    default="unknown",
+                ),
             ],
             static_variables={"source": "webhook"},
         )
@@ -248,7 +255,9 @@ class TestWebhookManager:
 
         assert manager.verify_signature("sig-test", payload, signature) is True
         assert manager.verify_signature("sig-test", payload, "invalid") is False
-        assert manager.verify_signature("sig-test", b"wrong payload", signature) is False
+        assert (
+            manager.verify_signature("sig-test", b"wrong payload", signature) is False
+        )
 
     def test_regenerate_secret(self, manager):
         """regenerate_secret() creates new secret."""
@@ -345,14 +354,8 @@ class TestWebhookManager:
     def test_extract_payload_value(self, manager):
         """_extract_payload_value() extracts nested values."""
         payload = {
-            "data": {
-                "user": {
-                    "id": 123,
-                    "name": "Test"
-                },
-                "action": "create"
-            },
-            "timestamp": "2024-01-01"
+            "data": {"user": {"id": 123, "name": "Test"}, "action": "create"},
+            "timestamp": "2024-01-01",
         }
 
         assert manager._extract_payload_value(payload, "data.user.id") == 123
@@ -368,7 +371,11 @@ class TestWebhookManager:
             workflow_id="test-workflow",
             payload_mappings=[
                 PayloadMapping(source_path="data.id", target_variable="item_id"),
-                PayloadMapping(source_path="data.missing", target_variable="missing", default="default_value"),
+                PayloadMapping(
+                    source_path="data.missing",
+                    target_variable="missing",
+                    default="default_value",
+                ),
             ],
             static_variables={"source": "webhook", "env": "test"},
         )
