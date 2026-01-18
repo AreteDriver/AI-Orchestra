@@ -7,6 +7,7 @@ import { WorkflowsPage } from '@/pages/Workflows';
 import { ExecutionsPage } from '@/pages/Executions';
 import { BudgetPage } from '@/pages/Budget';
 import { ConnectorsPage } from '@/pages/Connectors';
+import { SettingsPage } from '@/pages/Settings';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -29,9 +30,9 @@ function App() {
             <Route path="executions" element={<ExecutionsPage />} />
             <Route path="budget" element={<BudgetPage />} />
             <Route path="connectors" element={<ConnectorsPage />} />
+            <Route path="settings" element={<SettingsPage />} />
             {/* Placeholder routes */}
             <Route path="agents" element={<PlaceholderPage title="Agents" />} />
-            <Route path="settings" element={<PlaceholderPage title="Settings" />} />
           </Route>
         </Routes>
       </BrowserRouter>
