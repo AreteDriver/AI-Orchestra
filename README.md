@@ -46,6 +46,7 @@ Coordinate specialized Claude agents for software development with a single API 
 ### Unified Integration Layer
 - **OpenAI**: GPT-4 completions, summarization, SOP generation
 - **Claude**: Multi-agent orchestration with role-based prompts
+- **Gemini**: Google's Generative AI for code review, summarization, and completions
 - **GitHub**: Issues, commits, repository management
 - **Notion**: Pages, databases, content management
 - **Gmail**: Email reading, OAuth authentication
@@ -66,7 +67,7 @@ Coordinate specialized Claude agents for software development with a single API 
 
 ### Prerequisites
 - Python 3.12+
-- API keys: OpenAI (required), Anthropic (for Claude agents)
+- API keys: OpenAI (required), Anthropic (for Claude agents), Google (for Gemini)
 - Optional: GitHub, Notion, Gmail credentials
 
 ### Installation
@@ -86,6 +87,7 @@ cp .env.example .env
 OPENAI_API_KEY=sk-...
 ANTHROPIC_API_KEY=sk-ant-...  # For Claude agents
 CLAUDE_MODE=api               # 'api' or 'cli'
+GOOGLE_API_KEY=your-key...    # For Gemini
 ```
 
 ### Run
@@ -239,6 +241,30 @@ result = client.execute_agent(
 )
 
 print(result["output"])
+```
+
+### Using Gemini for Code Review
+
+```python
+from test_ai.api_clients import GeminiClient
+
+client = GeminiClient()
+
+# Review code with Gemini
+code = """
+def calculate_total(items):
+    return sum(item['price'] for item in items)
+"""
+
+review = client.review_code(code, context="Python function for e-commerce")
+print(review)
+
+# Generate completion
+result = client.generate_completion(
+    prompt="Explain the benefits of microservices architecture",
+    temperature=0.7
+)
+print(result)
 ```
 
 ---
