@@ -8,7 +8,11 @@ from datetime import datetime
 from typing import Dict, Optional
 
 from fastapi import FastAPI, HTTPException, Header, Request, Response
+from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 from pydantic import BaseModel
 
 from test_ai.auth import create_access_token, verify_token
@@ -30,6 +34,9 @@ from test_ai.jobs import (
 from test_ai.state import get_database, run_migrations, get_migration_status
 
 logger = logging.getLogger(__name__)
+
+# Rate limiter - uses client IP for identification
+limiter = Limiter(key_func=get_remote_address)
 
 # Managers initialized in lifespan
 schedule_manager: ScheduleManager | None = None
@@ -116,6 +123,22 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 # Register middleware
 app.add_middleware(RequestLoggingMiddleware)
 
+# Register rate limiter
+app.state.limiter = limiter
+
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    """Handle rate limit exceeded errors."""
+    return JSONResponse(
+        status_code=429,
+        content={
+            "detail": "Rate limit exceeded",
+            "retry_after": exc.detail,
+        },
+        headers={"Retry-After": str(exc.detail)},
+    )
+
 # Initialize components
 workflow_engine = WorkflowEngine()
 prompt_manager = PromptTemplateManager()
@@ -164,10 +187,11 @@ def root():
 
 
 @app.post("/auth/login", response_model=LoginResponse)
-def login(request: LoginRequest):
-    """Login endpoint (simplified)."""
-    if request.password == "demo":
-        token = create_access_token(request.user_id)
+@limiter.limit("5/minute")
+def login(request: Request, login_request: LoginRequest):
+    """Login endpoint (simplified). Rate limited to 5 requests/minute per IP."""
+    if login_request.password == "demo":
+        token = create_access_token(login_request.user_id)
         return LoginResponse(access_token=token)
 
     raise HTTPException(status_code=401, detail="Invalid credentials")
@@ -482,13 +506,14 @@ def get_webhook_history(
 
 # Public webhook trigger endpoint (uses signature verification, not JWT)
 @app.post("/hooks/{webhook_id}")
+@limiter.limit("30/minute")
 async def trigger_webhook(
     webhook_id: str,
     request: Request,
     x_webhook_signature: Optional[str] = Header(None, alias="X-Webhook-Signature"),
 ):
     """
-    Public endpoint to trigger a webhook.
+    Public endpoint to trigger a webhook. Rate limited to 30 requests/minute per IP.
 
     Authentication is via HMAC-SHA256 signature in X-Webhook-Signature header.
     Generate signature: HMAC-SHA256(secret, request_body)

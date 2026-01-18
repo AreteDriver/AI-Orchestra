@@ -65,10 +65,16 @@ def client(backend):
                             mock_result
                         )
 
-                        from test_ai.api import app
+                        from test_ai.api import app, limiter
+
+                        # Disable rate limiting for tests
+                        limiter.enabled = False
 
                         with TestClient(app) as test_client:
                             yield test_client
+
+                        # Re-enable rate limiting after tests
+                        limiter.enabled = True
 
 
 @pytest.fixture
@@ -461,3 +467,65 @@ class TestWebhookEndpoints:
         """POST /hooks/{id} returns 404 for nonexistent webhook."""
         response = client.post("/hooks/nonexistent", json={})
         assert response.status_code == 404
+
+
+class TestRateLimiting:
+    """Tests for rate limiting."""
+
+    @pytest.fixture
+    def rate_limited_client(self, backend):
+        """Create a test client with rate limiting enabled."""
+        from unittest.mock import patch, MagicMock
+
+        with patch("test_ai.api.get_database", return_value=backend):
+            with patch("test_ai.api.run_migrations", return_value=[]):
+                with patch(
+                    "test_ai.scheduler.schedule_manager.WorkflowEngine"
+                ) as mock_sched_engine:
+                    with patch(
+                        "test_ai.webhooks.webhook_manager.WorkflowEngine"
+                    ) as mock_webhook_engine:
+                        with patch(
+                            "test_ai.jobs.job_manager.WorkflowEngine"
+                        ) as mock_job_engine:
+                            mock_workflow = MagicMock()
+                            mock_workflow.variables = {}
+                            mock_sched_engine.return_value.load_workflow.return_value = (
+                                mock_workflow
+                            )
+                            mock_webhook_engine.return_value.load_workflow.return_value = (
+                                mock_workflow
+                            )
+                            mock_job_engine.return_value.load_workflow.return_value = (
+                                mock_workflow
+                            )
+
+                            from test_ai.api import app, limiter
+
+                            # Enable rate limiting for this test
+                            limiter.enabled = True
+                            # Reset limiter storage
+                            limiter.reset()
+
+                            from fastapi.testclient import TestClient
+
+                            with TestClient(app) as test_client:
+                                yield test_client
+
+                            limiter.enabled = False
+
+    def test_login_rate_limit(self, rate_limited_client):
+        """Login endpoint enforces rate limit after 5 requests."""
+        # Make 5 successful requests
+        for _ in range(5):
+            response = rate_limited_client.post(
+                "/auth/login", json={"user_id": "test", "password": "demo"}
+            )
+            assert response.status_code == 200
+
+        # 6th request should be rate limited
+        response = rate_limited_client.post(
+            "/auth/login", json={"user_id": "test", "password": "demo"}
+        )
+        assert response.status_code == 429
+        assert "Retry-After" in response.headers

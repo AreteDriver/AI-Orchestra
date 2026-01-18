@@ -15,6 +15,9 @@ aiosmtplib>=3.0.0
 # Scheduling
 apscheduler>=3.11.0
 
+# Rate limiting
+slowapi>=0.1.9
+
 # Security libs (updated for CVE fixes)
 pynacl>=1.6.0
 pyasn1>=0.6.1
