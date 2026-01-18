@@ -1,4 +1,4 @@
-"""Streamlit dashboard for AI Workflow Orchestrator."""
+"""Streamlit dashboard for Gorgon AI Workflow Orchestrator."""
 
 import json
 import streamlit as st
@@ -6,6 +6,14 @@ import streamlit as st
 from test_ai.orchestrator import WorkflowEngine, Workflow, WorkflowStep, StepType
 from test_ai.prompts import PromptTemplateManager, PromptTemplate
 from test_ai.api_clients import OpenAIClient
+
+# Import monitoring pages
+from test_ai.dashboard.monitoring_pages import (
+    render_monitoring_page,
+    render_agents_page,
+    render_metrics_page,
+    render_system_status,
+)
 
 
 # Initialize components
@@ -29,10 +37,13 @@ def get_openai_client():
 
 def render_sidebar():
     """Render sidebar navigation."""
-    st.sidebar.title("🤖 AI Workflow Orchestrator")
+    st.sidebar.title("🐍 Gorgon Orchestrator")
 
     pages = {
         "Dashboard": "📊",
+        "Monitoring": "🔴",
+        "Agents": "🤖",
+        "Metrics": "📈",
         "Workflows": "⚙️",
         "Prompts": "📝",
         "Execute": "▶️",
@@ -43,12 +54,15 @@ def render_sidebar():
         "Navigation", list(pages.keys()), format_func=lambda x: f"{pages[x]} {x}"
     )
 
+    # Show system status in sidebar
+    render_system_status()
+
     return page
 
 
 def render_dashboard_page():
     """Render main dashboard page."""
-    st.title("📊 Dashboard")
+    st.title("📊 Gorgon Dashboard")
 
     col1, col2, col3 = st.columns(3)
 
@@ -354,7 +368,7 @@ def render_logs_page():
 def main():
     """Main dashboard application."""
     st.set_page_config(
-        page_title="AI Workflow Orchestrator", page_icon="🤖", layout="wide"
+        page_title="Gorgon Orchestrator", page_icon="🐍", layout="wide"
     )
 
     # Initialize session state
@@ -370,6 +384,12 @@ def main():
     # Render the selected page
     if page == "Dashboard":
         render_dashboard_page()
+    elif page == "Monitoring":
+        render_monitoring_page()
+    elif page == "Agents":
+        render_agents_page()
+    elif page == "Metrics":
+        render_metrics_page()
     elif page == "Workflows":
         render_workflows_page()
     elif page == "Prompts":
