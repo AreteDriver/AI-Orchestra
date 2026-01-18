@@ -1,0 +1,31 @@
+{
+  "id": "gemini_code_review_workflow",
+  "name": "Gemini Code Review Workflow",
+  "description": "Uses Google Gemini to review code and provide feedback",
+  "steps": [
+    {
+      "id": "review",
+      "type": "gemini",
+      "action": "review_code",
+      "params": {
+        "code": "{{code_to_review}}",
+        "context": "{{review_context}}"
+      },
+      "next_step": "summarize"
+    },
+    {
+      "id": "summarize",
+      "type": "gemini",
+      "action": "summarize",
+      "params": {
+        "text": "{{review_output}}",
+        "max_length": 100
+      },
+      "next_step": null
+    }
+  ],
+  "variables": {
+    "code_to_review": "def example(): pass",
+    "review_context": "Python function"
+  }
+}
