@@ -4,6 +4,7 @@
 
 > *Like the mythical Gorgon with multiple heads, each specialized agent focuses its gaze on a specific aspect of the workflow - planning, building, testing, and reviewing in coordinated harmony.*
 
+[![CI](https://github.com/AreteDriver/Gorgon/actions/workflows/ci.yml/badge.svg)](https://github.com/AreteDriver/Gorgon/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.128+-green.svg)](https://fastapi.tiangolo.com/)
@@ -116,6 +117,24 @@ CLAUDE_MODE=api               # 'api' or 'cli'
 # API at http://localhost:8000
 ```
 
+### Docker (with PostgreSQL)
+
+```bash
+# Start all services
+docker compose up -d
+
+# Services:
+# - API: http://localhost:8001
+# - Dashboard: http://localhost:8501
+# - PostgreSQL: localhost:5432
+
+# View logs
+docker compose logs -f api
+
+# Stop services
+docker compose down
+```
+
 ---
 
 ## Workflow Examples
@@ -223,6 +242,81 @@ Gorgon/
 
 ---
 
+## Database Configuration
+
+Gorgon supports both SQLite (default) and PostgreSQL backends.
+
+### SQLite (Default)
+
+No configuration needed. Data stored in `gorgon-state.db`.
+
+### PostgreSQL
+
+Set the `DATABASE_URL` environment variable:
+
+```bash
+# .env
+DATABASE_URL=postgresql://user:password@localhost:5432/gorgon
+```
+
+Or use Docker Compose which configures PostgreSQL automatically.
+
+---
+
+## API Endpoints
+
+### Health & Monitoring
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | GET | Basic health check |
+| `/health/db` | GET | Database connectivity and migration status |
+
+### Authentication
+
+| Endpoint | Method | Rate Limit | Description |
+|----------|--------|------------|-------------|
+| `/auth/login` | POST | 5/min | Get access token |
+
+### Jobs (Async Workflow Execution)
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/jobs` | GET | List jobs (filter by status, workflow_id) |
+| `/jobs` | POST | Submit workflow for async execution |
+| `/jobs/stats` | GET | Job statistics |
+| `/jobs/{id}` | GET | Get job status and result |
+| `/jobs/{id}/cancel` | POST | Cancel pending/running job |
+
+### Schedules (Cron/Interval)
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/schedules` | GET | List all schedules |
+| `/schedules` | POST | Create schedule (cron or interval) |
+| `/schedules/{id}` | GET | Get schedule details |
+| `/schedules/{id}/pause` | POST | Pause schedule |
+| `/schedules/{id}/resume` | POST | Resume schedule |
+
+### Webhooks (Event-Driven)
+
+| Endpoint | Method | Rate Limit | Description |
+|----------|--------|------------|-------------|
+| `/webhooks` | GET | - | List webhooks |
+| `/webhooks` | POST | - | Create webhook |
+| `/webhooks/{id}` | GET | - | Get webhook (includes secret) |
+| `/hooks/{id}` | POST | 30/min | Trigger webhook (public) |
+
+### Rate Limiting
+
+Public endpoints are rate-limited per IP:
+- **Login**: 5 requests/minute
+- **Webhook triggers**: 30 requests/minute
+
+Rate-limited responses return `429` with `Retry-After` header.
+
+---
+
 ## Claude Agent Roles
 
 Customize agent behavior via `config/agent_prompts.json`:
@@ -295,7 +389,13 @@ Define workflows as JSON:
 - [x] Development workflow (Plan → Build → Test → Review)
 - [x] Analytics workflow (Ingest → Analyze → Visualize → Report)
 - [x] Configurable agent prompts (10 roles)
-- [ ] Database backend (PostgreSQL)
+- [x] Database backend (SQLite + PostgreSQL)
+- [x] Job queue with async execution
+- [x] Scheduled workflows (cron/interval)
+- [x] Webhook triggers
+- [x] Request logging with tracing
+- [x] Rate limiting
+- [x] CI/CD pipeline
 - [ ] Parallel agent execution
 - [ ] Visual workflow builder
 - [ ] Agent memory/context persistence
@@ -339,4 +439,4 @@ MIT License — see [LICENSE](LICENSE)
 
 **Author**: ARETE
 **Status**: Active Development
-**Version**: 0.2.0
+**Version**: 0.3.0
