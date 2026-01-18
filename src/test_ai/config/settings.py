@@ -25,6 +25,17 @@ class Settings(BaseSettings):
         None, description="Path to Gmail OAuth credentials"
     )
 
+    # Claude/Anthropic Settings
+    anthropic_api_key: Optional[str] = Field(
+        None, description="Anthropic API key for Claude"
+    )
+    claude_cli_path: str = Field(
+        "claude", description="Path to Claude CLI executable"
+    )
+    claude_mode: str = Field(
+        "api", description="Claude invocation mode: 'api' or 'cli'"
+    )
+
     # Application Settings
     app_name: str = Field("AI Workflow Orchestrator", description="Application name")
     debug: bool = Field(False, description="Debug mode")

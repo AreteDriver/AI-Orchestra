@@ -46,12 +46,17 @@ AI-Orchestra is built as a modular, extensible workflow orchestration platform. 
 │  │ OpenAI  │  │ GitHub  │  │ Notion  │  │  Gmail  │       │
 │  │ Client  │  │ Client  │  │ Client  │  │ Client  │       │
 │  └─────────┘  └─────────┘  └─────────┘  └─────────┘       │
+│                      ┌─────────────┐                        │
+│                      │ Claude Code │                        │
+│                      │   Client    │                        │
+│                      └─────────────┘                        │
 └────────────┬────────────────────────────────────────────────┘
              │
              v
 ┌─────────────────────────────────────────────────────────────┐
 │                   External Services                         │
-│     OpenAI API  │  GitHub API  │  Notion API  │  Gmail      │
+│  OpenAI API │ GitHub API │ Notion API │ Gmail │ Claude API  │
+│                                                Claude CLI   │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -186,6 +191,57 @@ class BaseAPIClient:
 - `get_message`: Fetch email content
 - `search`: Search emails
 
+#### Claude Code Client
+
+**Capabilities:**
+- Dual-mode operation (API and CLI)
+- Role-based agent execution
+- Specialized development workflows
+- Configurable agent prompts
+
+**Invocation Modes:**
+- **API Mode**: Direct calls to Anthropic API for programmatic use
+- **CLI Mode**: Subprocess execution of Claude CLI for interactive/local workflows
+
+**Actions:**
+- `execute_agent`: Run a specialized agent with role-specific prompts
+- `generate_completion`: Direct completion without role context
+- `execute_cli`: Run Claude CLI with custom prompt
+
+**Built-in Agent Roles:**
+
+| Role | Purpose |
+|------|---------|
+| `planner` | Strategic planning - breaks features into actionable steps |
+| `builder` | Code implementation - writes production-ready code |
+| `tester` | Testing specialist - creates comprehensive test suites |
+| `reviewer` | Code review - analyzes for quality, bugs, security |
+| `architect` | System design - makes architectural decisions |
+| `documenter` | Documentation - creates API docs and guides |
+
+**Configuration:**
+- Agent prompts configurable via `config/agent_prompts.json`
+- Supports custom roles by adding entries to config
+- Falls back to built-in defaults if config missing
+
+**Example Usage:**
+```python
+client = ClaudeCodeClient()
+
+# Execute a planning agent
+result = client.execute_agent(
+    role="planner",
+    task="Build user authentication system",
+    context="Using FastAPI and JWT tokens"
+)
+
+# Direct completion
+result = client.generate_completion(
+    prompt="Explain dependency injection",
+    system_prompt="You are a senior software engineer"
+)
+```
+
 ### 3. Prompt Template Manager (`src/test_ai/prompts/`)
 
 Manages reusable prompt templates.
@@ -264,12 +320,17 @@ class Settings(BaseSettings):
     openai_api_key: str
     github_token: Optional[str]
     notion_token: Optional[str]
-    
+
+    # Claude/Anthropic Settings
+    anthropic_api_key: Optional[str]
+    claude_cli_path: str = "claude"
+    claude_mode: str = "api"  # "api" or "cli"
+
     # Paths
     workflows_dir: Path
     prompts_dir: Path
     logs_dir: Path
-    
+
     # Auth
     secret_key: str
     access_token_expire_minutes: int
@@ -364,16 +425,77 @@ Return to User
 1. Gmail Client
    ↓ fetch emails matching query
    emails_data
-   
+
 2. OpenAI Client
    ↓ summarize email content
    summary_text
-   
+
 3. Notion Client
    ↓ create page with summary
    notion_page_id
-   
+
 4. Return Results
+```
+
+### Example: Development Workflow (Plan → Build → Test → Review)
+
+```
+1. Claude Code Client (planner role)
+   ↓ break down feature request into implementation plan
+   plan_output
+
+2. Claude Code Client (builder role)
+   ↓ implement code based on plan
+   build_output
+
+3. Claude Code Client (tester role)
+   ↓ write comprehensive tests
+   test_output
+
+4. Claude Code Client (reviewer role)
+   ↓ review implementation for quality/security
+   review_output
+
+5. Return Results (plan, code, tests, review)
+```
+
+**Workflow Definition:**
+```json
+{
+  "id": "dev_workflow_plan_build_test_review",
+  "name": "Development Workflow: Plan → Build → Test → Review",
+  "steps": [
+    {
+      "id": "plan",
+      "type": "claude_code",
+      "action": "execute_agent",
+      "params": { "role": "planner", "task": "{{feature_request}}" },
+      "next_step": "build"
+    },
+    {
+      "id": "build",
+      "type": "claude_code",
+      "action": "execute_agent",
+      "params": { "role": "builder", "task": "{{feature_request}}", "context": "{{plan_output}}" },
+      "next_step": "test"
+    },
+    {
+      "id": "test",
+      "type": "claude_code",
+      "action": "execute_agent",
+      "params": { "role": "tester", "task": "Write tests for: {{feature_request}}", "context": "{{build_output}}" },
+      "next_step": "review"
+    },
+    {
+      "id": "review",
+      "type": "claude_code",
+      "action": "execute_agent",
+      "params": { "role": "reviewer", "task": "Review: {{feature_request}}", "context": "{{build_output}}" },
+      "next_step": null
+    }
+  ],
+  "variables": { "feature_request": "Describe the feature" }
+}
 ```
 
 ## Design Patterns
@@ -388,7 +510,8 @@ def get_api_client(client_type: str) -> BaseAPIClient:
         "openai": OpenAIClient,
         "github": GitHubClient,
         "notion": NotionClient,
-        "gmail": GmailClient
+        "gmail": GmailClient,
+        "claude_code": ClaudeCodeClient
     }
     return clients[client_type]()
 ```
@@ -552,6 +675,8 @@ WorkflowError (base)
 6. **Workflow Versioning**: Version control for workflows
 7. **Visual Editor**: Drag-and-drop workflow builder
 8. **Plugin System**: Custom integrations
+9. **Parallel Agent Execution**: Run multiple Claude agents concurrently
+10. **Agent Memory**: Persistent context across workflow executions
 
 ### Technical Debt
 

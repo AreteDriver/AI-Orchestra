@@ -12,6 +12,7 @@ from test_ai.api_clients import (
     GitHubClient,
     NotionClientWrapper,
     GmailClient,
+    ClaudeCodeClient,
 )
 
 
@@ -23,6 +24,7 @@ class StepType(str, Enum):
     NOTION = "notion"
     GMAIL = "gmail"
     TRANSFORM = "transform"
+    CLAUDE_CODE = "claude_code"
 
 
 class WorkflowStep(BaseModel):
@@ -70,6 +72,7 @@ class WorkflowEngine:
         self.github_client = GitHubClient()
         self.notion_client = NotionClientWrapper()
         self.gmail_client = GmailClient()
+        self.claude_code_client = ClaudeCodeClient()
 
     def execute_workflow(self, workflow: Workflow) -> WorkflowResult:
         """Execute a workflow."""
@@ -121,6 +124,8 @@ class WorkflowEngine:
             return self._execute_gmail_step(step.action, params)
         elif step.type == StepType.TRANSFORM:
             return self._execute_transform_step(step.action, params, context)
+        elif step.type == StepType.CLAUDE_CODE:
+            return self._execute_claude_code_step(step.action, params)
         else:
             raise ValueError(f"Unknown step type: {step.type}")
 
@@ -177,6 +182,17 @@ class WorkflowEngine:
             return template.format(**context)
         else:
             raise ValueError(f"Unknown transform action: {action}")
+
+    def _execute_claude_code_step(self, action: str, params: Dict) -> Any:
+        """Execute a Claude Code step."""
+        if action == "execute_agent":
+            return self.claude_code_client.execute_agent(**params)
+        elif action == "generate_completion":
+            return self.claude_code_client.generate_completion(**params)
+        elif action == "execute_cli":
+            return self.claude_code_client.execute_cli_command(**params)
+        else:
+            raise ValueError(f"Unknown Claude Code action: {action}")
 
     def _interpolate_params(self, params: Dict, context: Dict) -> Dict:
         """Interpolate context variables in parameters."""
