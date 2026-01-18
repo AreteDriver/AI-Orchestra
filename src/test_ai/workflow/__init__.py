@@ -12,6 +12,7 @@ from .loader import (
     list_workflows,
 )
 from .executor import WorkflowExecutor, ExecutionResult
+from .scheduler import WorkflowScheduler, ScheduleConfig, ScheduleStatus, ExecutionLog
 
 __all__ = [
     "WorkflowConfig",
@@ -22,4 +23,8 @@ __all__ = [
     "list_workflows",
     "WorkflowExecutor",
     "ExecutionResult",
+    "WorkflowScheduler",
+    "ScheduleConfig",
+    "ScheduleStatus",
+    "ExecutionLog",
 ]
