@@ -10,6 +10,22 @@
 
 ---
 
+## Screenshots
+
+### Dashboard
+Monitor active workflows, token usage, costs, and recent executions.
+![Dashboard](docs/screenshot-dashboard.png)
+
+### Workflows
+Create and manage multi-agent workflow pipelines.
+![Workflows](docs/screenshot-workflows.png)
+
+### Executions
+Track running, completed, paused, and failed workflow executions with cost tracking.
+![Executions](docs/screenshot-executions.png)
+
+---
+
 ## Overview
 
 Gorgon is a production-grade framework for coordinating specialized AI agents across enterprise workflows. It provides a unified interface for chaining OpenAI, Claude, GitHub, Notion, and Gmail into declarative automation pipelines with full observability.
