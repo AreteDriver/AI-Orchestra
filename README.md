@@ -26,6 +26,10 @@ In Greek mythology, the Gorgon had multiple heads, each with a specific purpose.
 | **Reviewer** | Analysis | Identifies bugs, security issues, improvements |
 | **Architect** | System design | Makes architectural decisions |
 | **Documenter** | Technical writing | Creates API docs and guides |
+| **Data Engineer** | Data pipelines | Collection, cleaning, transformation |
+| **Analyst** | Data analysis | Statistical analysis, pattern finding |
+| **Visualizer** | Visualization | Charts, dashboards, visual insights |
+| **Reporter** | Reporting | Executive summaries, stakeholder docs |
 
 Each head works independently yet in perfect coordination, turning complex workflows into solid, repeatable execution.
 
@@ -98,9 +102,9 @@ CLAUDE_MODE=api               # 'api' or 'cli'
 
 ---
 
-## Development Workflow Example
+## Workflow Examples
 
-Execute a complete Plan → Build → Test → Review pipeline:
+### Development: Plan → Build → Test → Review
 
 ```bash
 curl -X POST http://localhost:8000/workflows/execute \
@@ -128,6 +132,26 @@ result = engine.execute_workflow(workflow)
 for step_id, output in result.outputs.items():
     print(f"[{step_id}]: {output['output'][:200]}...")
 ```
+
+### Analytics: Ingest → Analyze → Visualize → Report
+
+```bash
+curl -X POST http://localhost:8000/workflows/execute \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "workflow_id": "analytics_pipeline",
+    "variables": {
+      "data_task": "Analyze Q4 sales data and identify top performing regions"
+    }
+  }'
+```
+
+Pipeline stages:
+1. **Data Engineer** - Designs ingestion and cleaning pipeline
+2. **Analyst** - Performs statistical analysis, finds patterns
+3. **Visualizer** - Creates charts and dashboard code
+4. **Reporter** - Generates executive summary with recommendations
 
 ---
 
@@ -253,7 +277,8 @@ Define workflows as JSON:
 
 - [x] Multi-agent Claude integration
 - [x] Development workflow (Plan → Build → Test → Review)
-- [x] Configurable agent prompts
+- [x] Analytics workflow (Ingest → Analyze → Visualize → Report)
+- [x] Configurable agent prompts (10 roles)
 - [ ] Database backend (PostgreSQL)
 - [ ] Parallel agent execution
 - [ ] Visual workflow builder
