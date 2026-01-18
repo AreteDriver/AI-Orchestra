@@ -213,9 +213,15 @@ class WorkflowEngine:
         elif action == "review_code":
             return self.gemini_client.review_code(**params)
         elif action == "summarize":
-            return self.gemini_client.summarize_text(params.get("text", ""))
+            text = params.get("text", "")
+            if not text:
+                raise ValueError("'text' parameter is required for summarize action")
+            return self.gemini_client.summarize_text(text, params.get("max_length", 500))
         elif action == "generate_sop":
-            return self.gemini_client.generate_sop(params.get("task_description", ""))
+            task_description = params.get("task_description", "")
+            if not task_description:
+                raise ValueError("'task_description' parameter is required for generate_sop action")
+            return self.gemini_client.generate_sop(task_description)
         else:
             raise ValueError(f"Unknown Gemini action: {action}")
 

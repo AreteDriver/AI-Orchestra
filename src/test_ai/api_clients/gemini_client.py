@@ -24,7 +24,7 @@ class GeminiClient:
 
     def is_configured(self) -> bool:
         """Check if Gemini client is configured."""
-        return self.model is not None
+        return self.model is not None and bool(self.api_key)
 
     def generate_completion(
         self,
