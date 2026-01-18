@@ -1,0 +1,94 @@
+# Gorgon Local Development with PostgreSQL
+#
+# Usage:
+#   1. Copy .env.example to .env and configure API keys
+#   2. docker compose up -d
+#   3. API available at http://localhost:8000
+#   4. Dashboard at http://localhost:8501
+#
+# Services:
+#   - api: FastAPI backend (port 8000)
+#   - db: PostgreSQL database (port 5432)
+#   - dashboard: Streamlit dashboard (port 8501)
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: gorgon-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: gorgon
+      POSTGRES_PASSWORD: gorgon_dev
+      POSTGRES_DB: gorgon
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gorgon -d gorgon"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: gorgon-api
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql://gorgon:gorgon_dev@db:5432/gorgon
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - NOTION_TOKEN=${NOTION_TOKEN:-}
+      - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    volumes:
+      - ./workflows:/app/workflows
+      - ./prompts:/app/prompts
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: gorgon-dashboard
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql://gorgon:gorgon_dev@db:5432/gorgon
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    volumes:
+      - ./workflows:/app/workflows
+      - ./prompts:/app/prompts
+    ports:
+      - "8501:8501"
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["streamlit", "run", "src/test_ai/dashboard/app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  postgres_data:
+
+networks:
+  default:
+    name: gorgon-network
