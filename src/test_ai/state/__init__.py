@@ -14,7 +14,14 @@ from .backends import (
 )
 from .database import get_database, reset_database
 from .migrations import run_migrations, get_migration_status
-from .memory import AgentMemory, MemoryEntry
+from .memory import (
+    AgentMemory,
+    MemoryEntry,
+    ContextWindow,
+    ContextWindowStats,
+    Message,
+    MessageRole,
+)
 
 __all__ = [
     "StatePersistence",
@@ -30,4 +37,8 @@ __all__ = [
     "get_migration_status",
     "AgentMemory",
     "MemoryEntry",
+    "ContextWindow",
+    "ContextWindowStats",
+    "Message",
+    "MessageRole",
 ]
