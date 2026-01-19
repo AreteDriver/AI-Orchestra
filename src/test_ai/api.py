@@ -44,6 +44,15 @@ from test_ai.state import (
 )
 from test_ai.utils.circuit_breaker import get_all_circuit_stats, reset_all_circuits
 from test_ai.errors import GorgonError
+from test_ai.security import (
+    RequestSizeLimitMiddleware,
+    RequestLimitConfig,
+    BruteForceMiddleware,
+    BruteForceConfig,
+    get_brute_force_protection,
+)
+from test_ai.tracing.middleware import TracingMiddleware
+from test_ai.api_clients.resilience import get_all_provider_stats
 from test_ai.api_errors import (
     RateLimitErrorResponse,
     gorgon_exception_handler,
@@ -264,8 +273,40 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         return response
 
 
-# Register middleware
+# Register middleware (order matters: last added runs first on request)
+# 1. RequestLoggingMiddleware - request logging and shutdown handling
 app.add_middleware(RequestLoggingMiddleware)
+
+# 2. TracingMiddleware - distributed tracing (conditionally enabled via settings)
+_tracing_settings = get_settings()
+if _tracing_settings.tracing_enabled:
+    app.add_middleware(
+        TracingMiddleware,
+        service_name=_tracing_settings.tracing_service_name,
+        exclude_paths=["/health", "/health/live", "/health/ready", "/metrics"],
+    )
+
+# 3. BruteForceMiddleware - rate limiting for auth endpoints
+_settings = get_settings()
+brute_force_config = BruteForceConfig(
+    max_attempts_per_minute=_settings.brute_force_max_attempts_per_minute,
+    max_attempts_per_hour=_settings.brute_force_max_attempts_per_hour,
+    max_auth_attempts_per_minute=_settings.brute_force_max_auth_attempts_per_minute,
+    max_auth_attempts_per_hour=_settings.brute_force_max_auth_attempts_per_hour,
+    initial_block_seconds=_settings.brute_force_initial_block_seconds,
+    max_block_seconds=_settings.brute_force_max_block_seconds,
+    auth_paths=("/v1/auth/", "/auth/", "/login"),
+)
+app.add_middleware(BruteForceMiddleware, protection=get_brute_force_protection(brute_force_config))
+
+# 4. RequestSizeLimitMiddleware - reject oversized requests early
+request_limit_config = RequestLimitConfig(
+    max_body_size=_settings.request_max_body_size,
+    max_json_size=_settings.request_max_json_size,
+    max_form_size=_settings.request_max_form_size,
+    large_upload_paths=("/v1/workflows/upload",),  # Future: file upload endpoint
+)
+app.add_middleware(RequestSizeLimitMiddleware, config=request_limit_config)
 
 # Register rate limiter
 app.state.limiter = limiter
@@ -953,6 +994,10 @@ def full_health_check():
         },
         "database": None,
         "circuit_breakers": get_all_circuit_stats(),
+        "api_clients": get_all_provider_stats(),
+        "security": {
+            "brute_force": get_brute_force_protection().get_stats(),
+        },
     }
 
     # Calculate uptime

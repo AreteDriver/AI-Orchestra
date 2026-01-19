@@ -5,6 +5,7 @@ from openai import OpenAI, AsyncOpenAI
 
 from test_ai.config import get_settings
 from test_ai.utils.retry import with_retry, async_with_retry
+from test_ai.api_clients.resilience import resilient_call, resilient_call_async
 
 
 class OpenAIClient:
@@ -45,6 +46,7 @@ class OpenAIClient:
 
         return self._call_api(model, messages, temperature, max_tokens)
 
+    @resilient_call("openai")
     @with_retry(max_retries=3, base_delay=1.0, max_delay=30.0)
     def _call_api(
         self,
@@ -53,7 +55,7 @@ class OpenAIClient:
         temperature: float,
         max_tokens: Optional[int],
     ) -> str:
-        """Make the actual API call with retry logic."""
+        """Make the actual API call with retry logic and resilience."""
         response = self.client.chat.completions.create(
             model=model,
             messages=messages,
@@ -100,6 +102,7 @@ class OpenAIClient:
 
         return await self._call_api_async(model, messages, temperature, max_tokens)
 
+    @resilient_call_async("openai")
     @async_with_retry(max_retries=3, base_delay=1.0, max_delay=30.0)
     async def _call_api_async(
         self,
@@ -108,7 +111,7 @@ class OpenAIClient:
         temperature: float,
         max_tokens: Optional[int],
     ) -> str:
-        """Make the actual API call with retry logic (async)."""
+        """Make the actual API call with retry logic and resilience (async)."""
         response = await self.async_client.chat.completions.create(
             model=model,
             messages=messages,

@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional
 
 from test_ai.config import get_settings
 from test_ai.utils.retry import with_retry
+from test_ai.api_clients.resilience import resilient_call
 
 try:
     import anthropic
@@ -218,6 +219,7 @@ class ClaudeCodeClient:
 
         return self._call_anthropic_api(system_prompt, user_prompt, model, max_tokens)
 
+    @resilient_call("anthropic")
     @with_retry(max_retries=3, base_delay=1.0, max_delay=30.0)
     def _call_anthropic_api(
         self,

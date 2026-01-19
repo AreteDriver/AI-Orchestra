@@ -1,4 +1,7 @@
-"""GitHub API client wrapper with sync and async support."""
+"""GitHub API client wrapper with sync and async support.
+
+Includes response caching for repository metadata.
+"""
 
 import asyncio
 from typing import Optional, List, Dict
@@ -8,6 +11,8 @@ from github import Github, GithubException
 from test_ai.config import get_settings
 from test_ai.utils.retry import with_retry
 from test_ai.errors import MaxRetriesError
+from test_ai.cache import cached
+from test_ai.api_clients.resilience import resilient_call
 
 
 class GitHubClient:
@@ -43,11 +48,12 @@ class GitHubClient:
         except (GithubException, MaxRetriesError) as e:
             return {"error": str(e)}
 
+    @resilient_call("github")
     @with_retry(max_retries=3, base_delay=1.0, max_delay=30.0)
     def _create_issue_with_retry(
         self, repo_name: str, title: str, body: str, labels: Optional[List[str]]
     ) -> Dict:
-        """Create issue with retry logic."""
+        """Create issue with retry logic and resilience."""
         repo = self.client.get_repo(repo_name)
         issue = repo.create_issue(title=title, body=body, labels=labels or [])
         return {"number": issue.number, "url": issue.html_url, "title": issue.title}
@@ -71,6 +77,7 @@ class GitHubClient:
         except (GithubException, MaxRetriesError) as e:
             return {"error": str(e)}
 
+    @resilient_call("github")
     @with_retry(max_retries=3, base_delay=1.0, max_delay=30.0)
     def _commit_file_with_retry(
         self,
@@ -80,7 +87,7 @@ class GitHubClient:
         message: str,
         branch: str,
     ) -> Dict:
-        """Commit file with retry logic."""
+        """Commit file with retry logic and resilience."""
         repo = self.client.get_repo(repo_name)
 
         try:
@@ -106,9 +113,10 @@ class GitHubClient:
         except (GithubException, MaxRetriesError):
             return []
 
+    @resilient_call("github")
     @with_retry(max_retries=3, base_delay=1.0, max_delay=30.0)
     def _list_repos_with_retry(self) -> List[Dict]:
-        """List repos with retry logic."""
+        """List repos with retry logic and resilience."""
         repos = self.client.get_user().get_repos()
         return [
             {
@@ -162,18 +170,27 @@ class GitHubClient:
         return await asyncio.to_thread(self.get_repo_info, repo_name)
 
     def get_repo_info(self, repo_name: str) -> Optional[Dict]:
-        """Get repository information."""
+        """Get repository information.
+
+        Results are cached for 5 minutes.
+        """
         if not self.is_configured():
             return None
 
         try:
-            return self._get_repo_info_with_retry(repo_name)
+            return self._get_repo_info_cached(repo_name)
         except (GithubException, MaxRetriesError) as e:
             return {"error": str(e)}
 
+    @cached(ttl=300, prefix="github:repo")  # Cache for 5 minutes
+    def _get_repo_info_cached(self, repo_name: str) -> Dict:
+        """Get repo info with caching."""
+        return self._get_repo_info_with_retry(repo_name)
+
+    @resilient_call("github")
     @with_retry(max_retries=3, base_delay=1.0, max_delay=30.0)
     def _get_repo_info_with_retry(self, repo_name: str) -> Dict:
-        """Get repo info with retry logic."""
+        """Get repo info with retry logic and resilience."""
         repo = self.client.get_repo(repo_name)
         return {
             "name": repo.full_name,

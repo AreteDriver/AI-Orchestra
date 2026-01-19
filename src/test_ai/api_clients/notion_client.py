@@ -1,9 +1,15 @@
-"""Notion API client wrapper with sync and async support."""
+"""Notion API client wrapper with sync and async support.
+
+Includes response caching for frequently accessed data like database schemas.
+"""
 
 from typing import Optional, Dict, List, Any
+
 from test_ai.config import get_settings
 from test_ai.utils.retry import with_retry, async_with_retry
 from test_ai.errors import MaxRetriesError
+from test_ai.cache import cached
+from test_ai.api_clients.resilience import resilient_call, resilient_call_async
 
 try:
     from notion_client import Client as NotionClient
@@ -65,6 +71,7 @@ class NotionClientWrapper:
         except (APIResponseError, MaxRetriesError) as e:
             return [{"error": str(e)}]
 
+    @resilient_call("notion")
     @with_retry(max_retries=3, base_delay=1.0, max_delay=30.0)
     def _query_database_with_retry(
         self,
@@ -73,7 +80,7 @@ class NotionClientWrapper:
         sorts: Optional[List[Dict]],
         page_size: int,
     ) -> List[Dict]:
-        """Query database with retry logic."""
+        """Query database with retry logic and resilience."""
         query_params: Dict[str, Any] = {
             "database_id": database_id,
             "page_size": page_size,
@@ -89,18 +96,27 @@ class NotionClientWrapper:
         ]
 
     def get_database_schema(self, database_id: str) -> Optional[Dict]:
-        """Get database schema (properties and their types)."""
+        """Get database schema (properties and their types).
+
+        Results are cached for 1 hour since schemas rarely change.
+        """
         if not self.is_configured():
             return None
 
         try:
-            return self._get_database_schema_with_retry(database_id)
+            return self._get_database_schema_cached(database_id)
         except (APIResponseError, MaxRetriesError) as e:
             return {"error": str(e)}
 
+    @cached(ttl=3600, prefix="notion:schema")  # Cache for 1 hour
+    def _get_database_schema_cached(self, database_id: str) -> Dict:
+        """Get database schema with caching and retry."""
+        return self._get_database_schema_with_retry(database_id)
+
+    @resilient_call("notion")
     @with_retry(max_retries=3, base_delay=1.0, max_delay=30.0)
     def _get_database_schema_with_retry(self, database_id: str) -> Dict:
-        """Get database schema with retry logic."""
+        """Get database schema with retry logic and resilience."""
         db = self.client.databases.retrieve(database_id=database_id)
         return {
             "id": db["id"],
@@ -123,11 +139,12 @@ class NotionClientWrapper:
         except (APIResponseError, MaxRetriesError) as e:
             return {"error": str(e)}
 
+    @resilient_call("notion")
     @with_retry(max_retries=3, base_delay=1.0, max_delay=30.0)
     def _create_database_entry_with_retry(
         self, database_id: str, properties: Dict[str, Any]
     ) -> Dict:
-        """Create database entry with retry logic."""
+        """Create database entry with retry logic and resilience."""
         page = self.client.pages.create(
             parent={"database_id": database_id},
             properties=properties,
@@ -148,9 +165,10 @@ class NotionClientWrapper:
         except (APIResponseError, MaxRetriesError) as e:
             return [{"error": str(e)}]
 
+    @resilient_call("notion")
     @with_retry(max_retries=3, base_delay=1.0, max_delay=30.0)
     def _read_page_content_with_retry(self, page_id: str) -> List[Dict]:
-        """Read page content with retry logic."""
+        """Read page content with retry logic and resilience."""
         blocks = self.client.blocks.children.list(block_id=page_id)
         return [self._parse_block(block) for block in blocks.get("results", [])]
 
@@ -164,6 +182,7 @@ class NotionClientWrapper:
         except (APIResponseError, MaxRetriesError) as e:
             return {"error": str(e)}
 
+    @resilient_call("notion")
     @with_retry(max_retries=3, base_delay=1.0, max_delay=30.0)
     def _get_page_with_retry(self, page_id: str) -> Dict:
         """Get page with retry logic."""
@@ -180,6 +199,7 @@ class NotionClientWrapper:
         except (APIResponseError, MaxRetriesError) as e:
             return {"error": str(e)}
 
+    @resilient_call("notion")
     @with_retry(max_retries=3, base_delay=1.0, max_delay=30.0)
     def _update_page_with_retry(self, page_id: str, properties: Dict[str, Any]) -> Dict:
         """Update page with retry logic."""
@@ -196,6 +216,7 @@ class NotionClientWrapper:
         except (APIResponseError, MaxRetriesError) as e:
             return {"error": str(e)}
 
+    @resilient_call("notion")
     @with_retry(max_retries=3, base_delay=1.0, max_delay=30.0)
     def _archive_page_with_retry(self, page_id: str) -> Dict:
         """Archive page with retry logic."""
@@ -216,6 +237,7 @@ class NotionClientWrapper:
         except (APIResponseError, MaxRetriesError) as e:
             return {"error": str(e)}
 
+    @resilient_call("notion")
     @with_retry(max_retries=3, base_delay=1.0, max_delay=30.0)
     def _delete_block_with_retry(self, block_id: str) -> Dict:
         """Delete block with retry logic."""
@@ -232,6 +254,7 @@ class NotionClientWrapper:
         except (APIResponseError, MaxRetriesError) as e:
             return {"error": str(e)}
 
+    @resilient_call("notion")
     @with_retry(max_retries=3, base_delay=1.0, max_delay=30.0)
     def _update_block_with_retry(self, block_id: str, content: str) -> Dict:
         """Update block with retry logic."""
@@ -348,6 +371,7 @@ class NotionClientWrapper:
         except (APIResponseError, MaxRetriesError) as e:
             return {"error": str(e)}
 
+    @resilient_call("notion")
     @with_retry(max_retries=3, base_delay=1.0, max_delay=30.0)
     def _create_page_with_retry(self, parent_id: str, title: str, content: str) -> Dict:
         """Create page with retry logic."""
@@ -376,6 +400,7 @@ class NotionClientWrapper:
         except (APIResponseError, MaxRetriesError) as e:
             return {"error": str(e)}
 
+    @resilient_call("notion")
     @with_retry(max_retries=3, base_delay=1.0, max_delay=30.0)
     def _append_to_page_with_retry(self, page_id: str, content: str) -> Dict:
         """Append to page with retry logic."""
@@ -403,6 +428,7 @@ class NotionClientWrapper:
         except (APIResponseError, MaxRetriesError):
             return []
 
+    @resilient_call("notion")
     @with_retry(max_retries=3, base_delay=1.0, max_delay=30.0)
     def _search_pages_with_retry(self, query: str) -> List[Dict]:
         """Search pages with retry logic."""
@@ -448,6 +474,7 @@ class NotionClientWrapper:
         except (APIResponseError, MaxRetriesError) as e:
             return [{"error": str(e)}]
 
+    @resilient_call_async("notion")
     @async_with_retry(max_retries=3, base_delay=1.0, max_delay=30.0)
     async def _query_database_with_retry_async(
         self,
@@ -481,6 +508,7 @@ class NotionClientWrapper:
         except (APIResponseError, MaxRetriesError) as e:
             return {"error": str(e)}
 
+    @resilient_call_async("notion")
     @async_with_retry(max_retries=3, base_delay=1.0, max_delay=30.0)
     async def _get_database_schema_with_retry_async(self, database_id: str) -> Dict:
         """Get database schema with retry logic (async)."""
@@ -508,6 +536,7 @@ class NotionClientWrapper:
         except (APIResponseError, MaxRetriesError) as e:
             return {"error": str(e)}
 
+    @resilient_call_async("notion")
     @async_with_retry(max_retries=3, base_delay=1.0, max_delay=30.0)
     async def _get_page_with_retry_async(self, page_id: str) -> Dict:
         """Get page with retry logic (async)."""
@@ -524,6 +553,7 @@ class NotionClientWrapper:
         except (APIResponseError, MaxRetriesError) as e:
             return [{"error": str(e)}]
 
+    @resilient_call_async("notion")
     @async_with_retry(max_retries=3, base_delay=1.0, max_delay=30.0)
     async def _read_page_content_with_retry_async(self, page_id: str) -> List[Dict]:
         """Read page content with retry logic (async)."""
@@ -542,6 +572,7 @@ class NotionClientWrapper:
         except (APIResponseError, MaxRetriesError) as e:
             return {"error": str(e)}
 
+    @resilient_call_async("notion")
     @async_with_retry(max_retries=3, base_delay=1.0, max_delay=30.0)
     async def _create_page_with_retry_async(
         self, parent_id: str, title: str, content: str
@@ -574,6 +605,7 @@ class NotionClientWrapper:
         except (APIResponseError, MaxRetriesError) as e:
             return {"error": str(e)}
 
+    @resilient_call_async("notion")
     @async_with_retry(max_retries=3, base_delay=1.0, max_delay=30.0)
     async def _update_page_with_retry_async(
         self, page_id: str, properties: Dict[str, Any]
@@ -598,6 +630,7 @@ class NotionClientWrapper:
         except (APIResponseError, MaxRetriesError):
             return []
 
+    @resilient_call_async("notion")
     @async_with_retry(max_retries=3, base_delay=1.0, max_delay=30.0)
     async def _search_pages_with_retry_async(self, query: str) -> List[Dict]:
         """Search pages with retry logic (async)."""

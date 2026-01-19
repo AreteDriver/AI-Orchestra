@@ -4,6 +4,7 @@ from typing import Optional, List, Dict
 from test_ai.config import get_settings
 from test_ai.utils.retry import with_retry
 from test_ai.errors import MaxRetriesError
+from test_ai.api_clients.resilience import resilient_call
 
 
 class GmailClient:
@@ -67,6 +68,7 @@ class GmailClient:
         except (MaxRetriesError, Exception):
             return []
 
+    @resilient_call("gmail")
     @with_retry(max_retries=3, base_delay=1.0, max_delay=30.0)
     def _list_messages_with_retry(
         self, max_results: int, query: Optional[str]
@@ -90,6 +92,7 @@ class GmailClient:
         except (MaxRetriesError, Exception):
             return None
 
+    @resilient_call("gmail")
     @with_retry(max_retries=3, base_delay=1.0, max_delay=30.0)
     def _get_message_with_retry(self, message_id: str) -> Dict:
         """Get message with retry logic."""

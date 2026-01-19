@@ -126,6 +126,88 @@ class Settings(BaseSettings):
         description="Comma-separated list of allowed shell commands (empty = all allowed)",
     )
 
+    # Rate Limiting (API clients)
+    ratelimit_openai_rpm: int = Field(
+        60, description="OpenAI requests per minute"
+    )
+    ratelimit_openai_tpm: int = Field(
+        90000, description="OpenAI tokens per minute"
+    )
+    ratelimit_anthropic_rpm: int = Field(
+        60, description="Anthropic requests per minute"
+    )
+    ratelimit_github_rpm: int = Field(
+        30, description="GitHub requests per minute"
+    )
+    ratelimit_notion_rpm: int = Field(
+        30, description="Notion requests per minute"
+    )
+    ratelimit_gmail_rpm: int = Field(
+        30, description="Gmail requests per minute"
+    )
+
+    # Bulkhead/Concurrency Limits (API clients)
+    bulkhead_openai_concurrent: int = Field(
+        10, description="OpenAI max concurrent requests"
+    )
+    bulkhead_anthropic_concurrent: int = Field(
+        10, description="Anthropic max concurrent requests"
+    )
+    bulkhead_github_concurrent: int = Field(
+        5, description="GitHub max concurrent requests"
+    )
+    bulkhead_notion_concurrent: int = Field(
+        3, description="Notion max concurrent requests"
+    )
+    bulkhead_gmail_concurrent: int = Field(
+        5, description="Gmail max concurrent requests"
+    )
+    bulkhead_default_timeout: float = Field(
+        30.0, description="Default bulkhead timeout in seconds"
+    )
+
+    # Request Size Limits (API)
+    request_max_body_size: int = Field(
+        10 * 1024 * 1024, description="Maximum request body size in bytes (default: 10MB)"
+    )
+    request_max_json_size: int = Field(
+        1 * 1024 * 1024, description="Maximum JSON body size in bytes (default: 1MB)"
+    )
+    request_max_form_size: int = Field(
+        50 * 1024 * 1024, description="Maximum form body size in bytes (default: 50MB)"
+    )
+
+    # Brute Force Protection
+    brute_force_max_attempts_per_minute: int = Field(
+        60, description="Max requests per minute from a single IP"
+    )
+    brute_force_max_attempts_per_hour: int = Field(
+        300, description="Max requests per hour from a single IP"
+    )
+    brute_force_max_auth_attempts_per_minute: int = Field(
+        5, description="Max auth attempts per minute from a single IP"
+    )
+    brute_force_max_auth_attempts_per_hour: int = Field(
+        20, description="Max auth attempts per hour from a single IP"
+    )
+    brute_force_initial_block_seconds: float = Field(
+        60.0, description="Initial block duration in seconds"
+    )
+    brute_force_max_block_seconds: float = Field(
+        3600.0, description="Maximum block duration in seconds (default: 1 hour)"
+    )
+
+    # Distributed Tracing
+    tracing_enabled: bool = Field(
+        True, description="Enable distributed tracing"
+    )
+    tracing_service_name: str = Field(
+        "gorgon-api", description="Service name for tracing"
+    )
+    tracing_sample_rate: float = Field(
+        1.0, description="Trace sampling rate (0.0-1.0, default: trace all)"
+    )
+
     @property
     def has_secure_secret_key(self) -> bool:
         """Check if secret key meets security requirements.

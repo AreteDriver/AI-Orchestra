@@ -66,9 +66,16 @@ def client(backend):
                         )
 
                         from test_ai.api import app, limiter
+                        from test_ai.security.brute_force import get_brute_force_protection
 
                         # Disable rate limiting for tests
                         limiter.enabled = False
+
+                        # Reset brute force protection state for tests
+                        protection = get_brute_force_protection()
+                        protection._attempts.clear()
+                        protection._total_blocked = 0
+                        protection._total_allowed = 0
 
                         with TestClient(app) as test_client:
                             yield test_client
@@ -532,17 +539,29 @@ class TestRateLimiting:
                             )
 
                             from test_ai.api import app, limiter
+                            from test_ai.security.brute_force import get_brute_force_protection
 
                             # Enable rate limiting for this test
                             limiter.enabled = True
                             # Reset limiter storage
                             limiter.reset()
 
+                            # Reset brute force protection and increase limit for rate limit test
+                            protection = get_brute_force_protection()
+                            protection._attempts.clear()
+                            protection._total_blocked = 0
+                            protection._total_allowed = 0
+                            # Temporarily increase auth limit to test slowapi limiter
+                            original_limit = protection.config.max_auth_attempts_per_minute
+                            protection.config.max_auth_attempts_per_minute = 10
+
                             from fastapi.testclient import TestClient
 
                             with TestClient(app) as test_client:
                                 yield test_client
 
+                            # Restore original limit
+                            protection.config.max_auth_attempts_per_minute = original_limit
                             limiter.enabled = False
 
     def test_login_rate_limit(self, rate_limited_client):
