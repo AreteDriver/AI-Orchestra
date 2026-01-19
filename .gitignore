@@ -66,6 +66,9 @@ src/test_ai/workflows/*.json
 !src/test_ai/workflows/simple_ai_completion.json
 !src/test_ai/workflows/email_to_notion.json
 !src/test_ai/workflows/generate_sop_to_github.json
+!src/test_ai/workflows/github_repos_to_notion.json
+!src/test_ai/workflows/knowledge_capture.json
+!src/test_ai/workflows/daily_standup.json
 
 # Configuration files (use examples instead)
 config/settings.yaml
