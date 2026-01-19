@@ -5,7 +5,16 @@ visualization, and reporting workflows.
 """
 
 from .pipeline import AnalyticsPipeline, PipelineStage, PipelineResult
-from .collectors import DataCollector, JSONCollector, AggregateCollector, CollectedData
+from .collectors import (
+    DataCollector,
+    JSONCollector,
+    AggregateCollector,
+    CollectedData,
+    ExecutionMetricsCollector,
+    HistoricalMetricsCollector,
+    APIClientMetricsCollector,
+    BudgetMetricsCollector,
+)
 from .analyzers import (
     DataAnalyzer,
     AnalysisResult,
@@ -26,6 +35,10 @@ __all__ = [
     "CollectedData",
     "JSONCollector",
     "AggregateCollector",
+    "ExecutionMetricsCollector",
+    "HistoricalMetricsCollector",
+    "APIClientMetricsCollector",
+    "BudgetMetricsCollector",
     # Analyzers
     "DataAnalyzer",
     "AnalysisResult",

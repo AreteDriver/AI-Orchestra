@@ -287,3 +287,150 @@ class PipelineBuilder:
             )
             .add_stage(PipelineStage.REPORT, reporter.generate)
         )
+
+    @staticmethod
+    def workflow_metrics_pipeline() -> AnalyticsPipeline:
+        """Create a pipeline for real-time workflow metrics analysis.
+
+        Collects data from ExecutionTracker and analyzes trends.
+        """
+        from .collectors import ExecutionMetricsCollector
+        from .analyzers import CompositeAnalyzer, TrendAnalyzer, ThresholdAnalyzer
+        from .reporters import ReportGenerator
+        from .visualizers import ChartGenerator
+
+        pipeline = AnalyticsPipeline("workflow_metrics", use_agents=False)
+
+        collector = ExecutionMetricsCollector()
+        analyzer = CompositeAnalyzer([TrendAnalyzer(), ThresholdAnalyzer()])
+        visualizer = ChartGenerator()
+        reporter = ReportGenerator()
+
+        return (
+            pipeline.add_stage(PipelineStage.COLLECT, collector.collect)
+            .add_stage(
+                PipelineStage.ANALYZE,
+                analyzer.analyze,
+                config={
+                    "thresholds": {
+                        "metrics.counters.error_count": {"warning": 5, "critical": 10},
+                        "summary.success_rate": {"warning": 90, "critical": 80, "direction": "below"},
+                    }
+                },
+            )
+            .add_stage(PipelineStage.VISUALIZE, visualizer.generate)
+            .add_stage(PipelineStage.REPORT, reporter.generate)
+        )
+
+    @staticmethod
+    def historical_trends_pipeline(hours: int = 24) -> AnalyticsPipeline:
+        """Create a pipeline for historical trend analysis.
+
+        Args:
+            hours: Hours of history to analyze (default: 24)
+        """
+        from .collectors import HistoricalMetricsCollector
+        from .analyzers import TrendAnalyzer
+        from .reporters import ReportGenerator
+        from .visualizers import ChartGenerator
+
+        pipeline = AnalyticsPipeline("historical_trends", use_agents=False)
+
+        collector = HistoricalMetricsCollector()
+        analyzer = TrendAnalyzer()
+        visualizer = ChartGenerator()
+        reporter = ReportGenerator()
+
+        return (
+            pipeline.add_stage(
+                PipelineStage.COLLECT,
+                collector.collect,
+                config={"hours": hours},
+            )
+            .add_stage(PipelineStage.ANALYZE, analyzer.analyze)
+            .add_stage(PipelineStage.VISUALIZE, visualizer.generate)
+            .add_stage(PipelineStage.REPORT, reporter.generate)
+        )
+
+    @staticmethod
+    def api_health_pipeline() -> AnalyticsPipeline:
+        """Create a pipeline for API client health monitoring.
+
+        Monitors rate limiting, circuit breakers, and bulkhead stats.
+        """
+        from .collectors import APIClientMetricsCollector
+        from .analyzers import ThresholdAnalyzer
+        from .reporters import AlertGenerator
+
+        pipeline = AnalyticsPipeline("api_health", use_agents=False)
+
+        collector = APIClientMetricsCollector()
+        analyzer = ThresholdAnalyzer()
+        alerter = AlertGenerator()
+
+        return (
+            pipeline.add_stage(PipelineStage.COLLECT, collector.collect)
+            .add_stage(
+                PipelineStage.ANALYZE,
+                analyzer.analyze,
+                config={
+                    "thresholds": {
+                        # Alert if any circuit is open
+                        "metrics.counters.circuit_openai_state": {"warning": 1, "critical": 1},
+                        "metrics.counters.circuit_anthropic_state": {"warning": 1, "critical": 1},
+                        # Alert on high denial rates
+                        "metrics.counters.openai_requests_denied": {"warning": 10, "critical": 50},
+                    }
+                },
+            )
+            .add_stage(PipelineStage.ALERT, alerter.generate)
+        )
+
+    @staticmethod
+    def operations_dashboard_pipeline() -> AnalyticsPipeline:
+        """Create a comprehensive operations dashboard pipeline.
+
+        Combines workflow metrics, API health, and budget tracking.
+        """
+        from .collectors import (
+            AggregateCollector,
+            ExecutionMetricsCollector,
+            APIClientMetricsCollector,
+            BudgetMetricsCollector,
+        )
+        from .analyzers import CompositeAnalyzer, TrendAnalyzer, ThresholdAnalyzer
+        from .visualizers import DashboardBuilder
+        from .reporters import ReportGenerator
+
+        pipeline = AnalyticsPipeline("operations_dashboard", use_agents=False)
+
+        # Aggregate multiple data sources
+        collector = AggregateCollector([
+            ExecutionMetricsCollector(),
+            APIClientMetricsCollector(),
+            BudgetMetricsCollector(),
+        ])
+
+        analyzer = CompositeAnalyzer([TrendAnalyzer(), ThresholdAnalyzer()])
+        dashboard = DashboardBuilder()
+        reporter = ReportGenerator()
+
+        return (
+            pipeline.add_stage(PipelineStage.COLLECT, collector.collect)
+            .add_stage(
+                PipelineStage.ANALYZE,
+                analyzer.analyze,
+                config={
+                    "thresholds": {
+                        "execution_tracker.metrics.counters.error_count": {"warning": 5, "critical": 10},
+                        "budget_tracker.metrics.counters.budget_remaining": {
+                            "warning": 10,
+                            "critical": 5,
+                            "direction": "below",
+                        },
+                    }
+                },
+            )
+            .add_stage(PipelineStage.VISUALIZE, dashboard.build)
+            .add_stage(PipelineStage.REPORT, reporter.generate)
+        )

@@ -12,6 +12,7 @@ from test_ai.dashboard.monitoring_pages import (
     render_monitoring_page,
     render_agents_page,
     render_metrics_page,
+    render_analytics_page,
     render_system_status,
 )
 
@@ -44,6 +45,7 @@ def render_sidebar():
         "Monitoring": "🔴",
         "Agents": "🤖",
         "Metrics": "📈",
+        "Analytics": "🔬",
         "Workflows": "⚙️",
         "Prompts": "📝",
         "Execute": "▶️",
@@ -388,6 +390,8 @@ def main():
         render_agents_page()
     elif page == "Metrics":
         render_metrics_page()
+    elif page == "Analytics":
+        render_analytics_page()
     elif page == "Workflows":
         render_workflows_page()
     elif page == "Prompts":

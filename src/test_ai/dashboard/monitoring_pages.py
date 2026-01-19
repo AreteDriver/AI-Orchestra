@@ -394,3 +394,259 @@ def render_system_status():
 
     except Exception:
         st.sidebar.markdown("⚪ Monitoring unavailable")
+
+
+def render_analytics_page():
+    """Render analytics pipeline page."""
+    st.title("Analytics Pipelines")
+
+    # Pipeline descriptions
+    pipelines = {
+        "workflow_metrics": {
+            "name": "Workflow Metrics",
+            "description": "Real-time workflow execution metrics from ExecutionTracker",
+            "icon": "⚡",
+        },
+        "historical_trends": {
+            "name": "Historical Trends",
+            "description": "Analyze execution trends over time from MetricsStore",
+            "icon": "📊",
+        },
+        "api_health": {
+            "name": "API Health",
+            "description": "Monitor API client resilience (rate limits, circuit breakers)",
+            "icon": "🔌",
+        },
+        "operations_dashboard": {
+            "name": "Operations Dashboard",
+            "description": "Comprehensive view combining all metrics sources",
+            "icon": "🎛️",
+        },
+    }
+
+    # Pipeline selector
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        selected_pipeline = st.selectbox(
+            "Select Pipeline",
+            options=list(pipelines.keys()),
+            format_func=lambda x: f"{pipelines[x]['icon']} {pipelines[x]['name']}",
+        )
+    with col2:
+        hours = st.number_input(
+            "History (hours)",
+            min_value=1,
+            max_value=168,
+            value=24,
+            help="Hours of history for historical_trends pipeline",
+        )
+
+    st.info(pipelines[selected_pipeline]["description"])
+
+    # Run pipeline button
+    if st.button("Run Pipeline", type="primary", use_container_width=True):
+        with st.spinner(f"Running {pipelines[selected_pipeline]['name']} pipeline..."):
+            try:
+                result = _run_analytics_pipeline(selected_pipeline, hours)
+                st.session_state.analytics_result = result
+                st.session_state.analytics_pipeline = selected_pipeline
+            except Exception as e:
+                st.error(f"Pipeline failed: {e}")
+                import traceback
+                st.code(traceback.format_exc())
+
+    st.divider()
+
+    # Display results
+    if "analytics_result" in st.session_state:
+        result = st.session_state.analytics_result
+        pipeline_name = st.session_state.get("analytics_pipeline", "unknown")
+
+        _render_pipeline_result(result, pipeline_name, pipelines)
+
+
+def _run_analytics_pipeline(pipeline_id: str, hours: int = 24):
+    """Run selected analytics pipeline."""
+    from test_ai.orchestrators.analytics.pipeline import PipelineBuilder
+
+    if pipeline_id == "workflow_metrics":
+        pipeline = PipelineBuilder.workflow_metrics_pipeline()
+    elif pipeline_id == "historical_trends":
+        pipeline = PipelineBuilder.historical_trends_pipeline(hours=hours)
+    elif pipeline_id == "api_health":
+        pipeline = PipelineBuilder.api_health_pipeline()
+    elif pipeline_id == "operations_dashboard":
+        pipeline = PipelineBuilder.operations_dashboard_pipeline()
+    else:
+        raise ValueError(f"Unknown pipeline: {pipeline_id}")
+
+    return pipeline.execute()
+
+
+def _render_pipeline_result(result, pipeline_name: str, pipelines: dict):
+    """Render pipeline execution results."""
+    # Header with status
+    status_icon = "✅" if result.status == "completed" else "❌"
+    st.subheader(f"{status_icon} {pipelines.get(pipeline_name, {}).get('name', pipeline_name)}")
+
+    # Pipeline execution summary
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Status", result.status.title())
+    with col2:
+        st.metric("Stages", len(result.stages))
+    with col3:
+        total_duration = sum(s.duration_ms for s in result.stages)
+        st.metric("Duration", f"{total_duration:.1f}ms")
+    with col4:
+        errors = len(result.errors)
+        st.metric("Errors", errors, delta="OK" if errors == 0 else None, delta_color="normal" if errors == 0 else "inverse")
+
+    st.divider()
+
+    # Stage details
+    st.subheader("Pipeline Stages")
+    for stage in result.stages:
+        status_emoji = "✅" if stage.status == "success" else "❌"
+        with st.expander(f"{status_emoji} {stage.stage.value.upper()} - {stage.duration_ms:.1f}ms"):
+            if stage.error:
+                st.error(f"Error: {stage.error}")
+            elif stage.output:
+                _render_stage_output(stage)
+
+    # Final output visualization
+    if result.final_output:
+        st.divider()
+        st.subheader("Analysis Results")
+        _render_final_output(result.final_output)
+
+
+def _render_stage_output(stage):
+    """Render individual stage output."""
+    output = stage.output
+    stage_type = stage.stage.value
+
+    if stage_type == "collect":
+        # CollectedData
+        if hasattr(output, "source"):
+            st.markdown(f"**Source:** {output.source}")
+            st.caption(f"Collected at: {output.collected_at}")
+
+            if hasattr(output, "data") and output.data:
+                data = output.data
+
+                # Show metrics if available
+                metrics = data.get("metrics", {})
+                counters = metrics.get("counters", {})
+                if counters:
+                    st.markdown("**Counters:**")
+                    cols = st.columns(min(4, len(counters)))
+                    for i, (key, value) in enumerate(list(counters.items())[:8]):
+                        cols[i % 4].metric(key.replace("_", " ").title(), value)
+
+                # Show summary if available
+                summary = data.get("summary", {})
+                if summary:
+                    st.markdown("**Summary:**")
+                    st.json(summary)
+        else:
+            st.json(output if isinstance(output, dict) else str(output))
+
+    elif stage_type == "analyze":
+        # AnalysisResult
+        if hasattr(output, "severity"):
+            severity_colors = {"info": "blue", "warning": "orange", "critical": "red"}
+            color = severity_colors.get(output.severity, "gray")
+            st.markdown(f"**Severity:** :{color}[{output.severity.upper()}]")
+
+        if hasattr(output, "findings") and output.findings:
+            st.markdown("**Findings:**")
+            for finding in output.findings:
+                sev = finding.get("severity", "info")
+                icon = {"info": "ℹ️", "warning": "⚠️", "critical": "🚨"}.get(sev, "•")
+                st.markdown(f"{icon} {finding.get('message', '')}")
+        else:
+            st.success("No issues detected")
+
+    elif stage_type == "visualize":
+        # VisualizationResult
+        if hasattr(output, "charts"):
+            st.markdown(f"**Generated {len(output.charts)} charts**")
+            for chart in output.charts:
+                st.caption(f"• {chart.title} ({chart.chart_type})")
+        if hasattr(output, "streamlit_code") and output.streamlit_code:
+            with st.expander("View Generated Code"):
+                st.code(output.streamlit_code, language="python")
+
+    elif stage_type == "report":
+        # ReportResult
+        if hasattr(output, "report_type"):
+            st.markdown(f"**Report Type:** {output.report_type}")
+        if hasattr(output, "summary"):
+            st.markdown(output.summary)
+
+    elif stage_type == "alert":
+        # AlertResult
+        if hasattr(output, "alerts") and output.alerts:
+            st.markdown(f"**{len(output.alerts)} alerts generated**")
+            for alert in output.alerts:
+                sev = alert.get("severity", "info")
+                icon = {"info": "ℹ️", "warning": "⚠️", "critical": "🚨"}.get(sev, "•")
+                st.markdown(f"{icon} **{alert.get('title', 'Alert')}**: {alert.get('message', '')}")
+        else:
+            st.success("No alerts triggered")
+
+    else:
+        # Fallback
+        if isinstance(output, dict):
+            st.json(output)
+        elif hasattr(output, "to_dict"):
+            st.json(output.to_dict())
+        else:
+            st.text(str(output))
+
+
+def _render_final_output(output):
+    """Render final pipeline output with charts."""
+    import pandas as pd
+
+    # Try to extract metrics for visualization
+    metrics = {}
+    findings = []
+
+    if hasattr(output, "metrics"):
+        metrics = output.metrics
+    elif hasattr(output, "data") and isinstance(output.data, dict):
+        metrics = output.data.get("metrics", {})
+    elif isinstance(output, dict):
+        metrics = output.get("metrics", output)
+
+    if hasattr(output, "findings"):
+        findings = output.findings
+
+    # Counters as bar chart
+    counters = metrics.get("counters", {})
+    if counters:
+        numeric_counters = {k: v for k, v in counters.items() if isinstance(v, (int, float)) and v > 0}
+        if numeric_counters:
+            st.markdown("### Key Metrics")
+            df = pd.DataFrame({"Metric": list(numeric_counters.keys()), "Value": list(numeric_counters.values())})
+            st.bar_chart(df.set_index("Metric"))
+
+    # Findings table
+    if findings:
+        st.markdown("### Analysis Findings")
+        findings_df = pd.DataFrame([
+            {"Severity": f.get("severity", "info"), "Finding": f.get("message", "")}
+            for f in findings
+        ])
+        st.dataframe(findings_df, use_container_width=True)
+
+    # Raw output expander
+    with st.expander("View Raw Output"):
+        if hasattr(output, "to_dict"):
+            st.json(output.to_dict())
+        elif isinstance(output, dict):
+            st.json(output)
+        else:
+            st.text(str(output))
