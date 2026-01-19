@@ -43,6 +43,14 @@ class JSONFormatter(logging.Formatter):
             "message": record.getMessage(),
         }
 
+        # Add trace context if present (from tracing module)
+        if hasattr(record, "trace_id"):
+            log_data["trace_id"] = record.trace_id
+        if hasattr(record, "span_id"):
+            log_data["span_id"] = record.span_id
+        if hasattr(record, "parent_span_id"):
+            log_data["parent_span_id"] = record.parent_span_id
+
         # Add extra fields if present
         if hasattr(record, "request_id"):
             log_data["request_id"] = record.request_id
@@ -50,6 +58,12 @@ class JSONFormatter(logging.Formatter):
             log_data["method"] = record.method
         if hasattr(record, "path"):
             log_data["path"] = record.path
+        if hasattr(record, "http.method"):
+            log_data["http.method"] = getattr(record, "http.method")
+        if hasattr(record, "http.path"):
+            log_data["http.path"] = getattr(record, "http.path")
+        if hasattr(record, "http.status_code"):
+            log_data["http.status_code"] = getattr(record, "http.status_code")
         if hasattr(record, "status_code"):
             log_data["status_code"] = record.status_code
         if hasattr(record, "duration_ms"):
