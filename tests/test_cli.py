@@ -185,8 +185,8 @@ class TestVersionCommand:
         result = runner.invoke(app, ["version"])
 
         assert result.exit_code == 0
-        assert "Gorgon" in result.output
-        assert "v0.3.0" in result.output
+        assert "gorgon" in result.output.lower()
+        assert "0.3.0" in result.output
 
 
 class TestInitCommand:

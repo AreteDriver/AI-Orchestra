@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 from pathlib import Path
-from typing import Optional
+from typing import Annotated, Optional
 
 import typer
 from rich.console import Console
@@ -13,12 +14,65 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
+__version__ = "0.3.0"
+
 app = typer.Typer(
     name="gorgon",
-    help="Your personal army of AI agents for development workflows",
-    add_completion=False,
+    help="Your personal army of AI agents for development workflows.",
+    add_completion=True,
+    no_args_is_help=True,
+    rich_markup_mode="rich",
 )
 console = Console()
+
+
+def version_callback(value: bool):
+    """Show version and exit."""
+    if value:
+        console.print(f"[bold cyan]gorgon[/bold cyan] version {__version__}")
+        raise typer.Exit()
+
+
+@app.callback()
+def main(
+    version: Annotated[
+        bool,
+        typer.Option(
+            "--version",
+            "-V",
+            callback=version_callback,
+            is_eager=True,
+            help="Show version and exit.",
+        ),
+    ] = False,
+):
+    """Gorgon - Multi-agent AI workflow orchestration.
+
+    Coordinate specialized AI agents (Planner, Builder, Tester, Reviewer)
+    across your development workflows.
+
+    [bold]Quick Start:[/bold]
+
+        gorgon init         Create a new workflow template
+        gorgon run WORKFLOW Execute a workflow
+        gorgon plan TASK    Plan implementation steps
+        gorgon build TASK   Generate code for a task
+        gorgon test TASK    Generate tests for code
+        gorgon review PATH  Review code for issues
+        gorgon ask QUESTION Ask a question about your code
+
+    [bold]Shell Completion:[/bold]
+
+        # Bash
+        gorgon --install-completion bash
+
+        # Zsh
+        gorgon --install-completion zsh
+
+        # Fish
+        gorgon --install-completion fish
+    """
+    pass
 
 
 def get_workflow_engine():
@@ -571,11 +625,105 @@ def init(
     console.print(f"  3. Run: [cyan]gorgon run {output_path}[/cyan]")
 
 
-@app.command()
+@app.command(hidden=True)
 def version():
-    """Show Gorgon version."""
-    console.print("[bold]Gorgon[/bold] v0.3.0")
+    """Show Gorgon version (use --version instead)."""
+    console.print(f"[bold cyan]gorgon[/bold cyan] version {__version__}")
     console.print("[dim]Your personal army of AI agents[/dim]")
+
+
+@app.command()
+def completion(
+    shell: str = typer.Argument(
+        None,
+        help="Shell type (bash, zsh, fish). Auto-detected if not provided.",
+    ),
+    install: bool = typer.Option(
+        False,
+        "--install",
+        "-i",
+        help="Install completion to shell config file.",
+    ),
+):
+    """Show or install shell completion.
+
+    Examples:
+
+        # Show completion script for current shell
+        gorgon completion
+
+        # Show completion script for specific shell
+        gorgon completion bash
+
+        # Install completion (adds to shell config)
+        gorgon completion --install
+    """
+    import os
+
+    # Auto-detect shell
+    if not shell:
+        shell_path = os.environ.get("SHELL", "")
+        if "zsh" in shell_path:
+            shell = "zsh"
+        elif "fish" in shell_path:
+            shell = "fish"
+        else:
+            shell = "bash"
+
+    if install:
+        # Use Typer's built-in completion installation
+        console.print(f"[cyan]Installing completion for {shell}...[/cyan]")
+        try:
+            # Typer installs completion via --install-completion
+            result = subprocess.run(
+                [sys.executable, "-m", "typer", "gorgon", "--install-completion", shell],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                console.print(f"[green]Completion installed for {shell}![/green]")
+                console.print("[dim]Restart your shell or source your config file.[/dim]")
+            else:
+                # Fall back to manual instructions
+                _show_completion_instructions(shell)
+        except Exception:
+            _show_completion_instructions(shell)
+    else:
+        _show_completion_instructions(shell)
+
+
+def _show_completion_instructions(shell: str):
+    """Show manual completion installation instructions."""
+    instructions = {
+        "bash": '''
+# Add to ~/.bashrc:
+eval "$(_GORGON_COMPLETE=bash_source gorgon)"
+
+# Or generate and source a file:
+_GORGON_COMPLETE=bash_source gorgon > ~/.gorgon-complete.bash
+echo 'source ~/.gorgon-complete.bash' >> ~/.bashrc
+''',
+        "zsh": '''
+# Add to ~/.zshrc:
+eval "$(_GORGON_COMPLETE=zsh_source gorgon)"
+
+# Or for faster startup, add to ~/.zshrc:
+autoload -Uz compinit && compinit
+eval "$(_GORGON_COMPLETE=zsh_source gorgon)"
+''',
+        "fish": '''
+# Add to ~/.config/fish/completions/gorgon.fish:
+_GORGON_COMPLETE=fish_source gorgon > ~/.config/fish/completions/gorgon.fish
+''',
+    }
+
+    console.print(Panel(
+        f"[bold]Shell Completion Setup for {shell.upper()}[/bold]\n\n"
+        f"{instructions.get(shell, instructions['bash'])}\n"
+        "[dim]After adding, restart your shell or source the config file.[/dim]",
+        title="Installation Instructions",
+        border_style="cyan",
+    ))
 
 
 # =============================================================================
@@ -1455,16 +1603,6 @@ def budget_reset(
     except Exception as e:
         console.print(f"[red]Error resetting budget:[/red] {e}")
         raise typer.Exit(1)
-
-
-@app.callback()
-def main():
-    """
-    Gorgon - Multi-agent orchestration framework for production AI workflows.
-
-    Run 'gorgon --help' for available commands.
-    """
-    pass
 
 
 if __name__ == "__main__":
