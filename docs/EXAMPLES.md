@@ -9,6 +9,10 @@ This document provides detailed code examples and usage patterns for Gorgon.
 - [Custom Workflows](#custom-workflows)
 - [Advanced Patterns](#advanced-patterns)
 - [Error Handling](#error-handling)
+- [Real-World Examples](#real-world-examples)
+- [Best Practices](#best-practices)
+- [YAML Workflow Format](#yaml-workflow-format)
+- [Parallel Execution](#parallel-execution)
 
 ---
 
@@ -702,4 +706,327 @@ Be professional, empathetic, and provide actionable next steps.""",
 
 ---
 
-For more examples, see the [workflows directory](../src/test_ai/workflows/) in the repository.
+## YAML Workflow Format
+
+### Example 15: Basic YAML Workflow
+
+Workflows can be defined in YAML for easier readability and version control.
+
+```yaml
+name: Feature Build
+version: "1.0"
+description: Multi-agent workflow for building new features
+
+token_budget: 150000
+timeout_seconds: 3600
+
+inputs:
+  feature_request:
+    type: string
+    required: true
+    description: Description of the feature to build
+  codebase_path:
+    type: string
+    required: true
+
+outputs:
+  - plan
+  - code
+  - review
+
+steps:
+  - id: plan
+    type: claude_code
+    params:
+      role: planner
+      prompt: |
+        Analyze the feature request and create a plan:
+        Feature: ${feature_request}
+      estimated_tokens: 5000
+    outputs:
+      - plan
+    on_failure: abort
+
+  - id: build
+    type: claude_code
+    params:
+      role: builder
+      prompt: |
+        Implement the feature: ${plan}
+      estimated_tokens: 20000
+    outputs:
+      - code
+    on_failure: retry
+    max_retries: 2
+```
+
+### Step Types
+
+| Type | Description |
+|------|-------------|
+| `claude_code` | Execute Claude/Anthropic API call |
+| `openai` | Execute OpenAI API call |
+| `shell` | Run shell command |
+| `parallel` | Execute sub-steps concurrently |
+| `checkpoint` | Create execution checkpoint |
+
+### Step Configuration Options
+
+```yaml
+- id: step_name           # Unique identifier
+  type: claude_code       # Step type
+  params:                 # Type-specific parameters
+    role: planner
+    prompt: "..."
+    estimated_tokens: 5000
+  condition:              # Optional: conditional execution
+    field: previous_result
+    operator: contains    # equals, not_equals, contains, greater_than, less_than
+    value: "success"
+  on_failure: abort       # abort, skip, retry
+  max_retries: 3          # For retry mode
+  timeout_seconds: 300
+  outputs:                # Variables to capture
+    - result_var
+```
+
+---
+
+## Parallel Execution
+
+### Example 16: Parallel Steps
+
+Run multiple independent analyses concurrently:
+
+```yaml
+steps:
+  - id: parallel_analysis
+    type: parallel
+    params:
+      strategy: threading    # threading, asyncio, or process
+      max_workers: 4         # Maximum concurrent tasks
+      fail_fast: false       # Continue if one fails
+      steps:
+        - id: security
+          type: claude_code
+          params:
+            role: reviewer
+            prompt: "Perform security analysis..."
+          outputs:
+            - security_report
+
+        - id: performance
+          type: claude_code
+          params:
+            role: analyst
+            prompt: "Analyze performance..."
+          outputs:
+            - performance_report
+```
+
+### Parallel Configuration Options
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `strategy` | `threading` | Execution strategy: `threading`, `asyncio`, `process` |
+| `max_workers` | `4` | Maximum concurrent tasks |
+| `fail_fast` | `false` | Abort all tasks on first failure |
+| `steps` | `[]` | List of sub-step configurations |
+
+### Example 17: Dependencies with `depends_on`
+
+Use `depends_on` to create execution order within parallel steps:
+
+```yaml
+steps:
+  - id: parallel_pipeline
+    type: parallel
+    params:
+      max_workers: 3
+      steps:
+        # These run concurrently (no dependencies)
+        - id: security
+          type: claude_code
+          params:
+            role: reviewer
+            prompt: "Security analysis..."
+          outputs:
+            - security_report
+
+        - id: performance
+          type: claude_code
+          params:
+            role: analyst
+            prompt: "Performance analysis..."
+          outputs:
+            - performance_report
+
+        - id: maintainability
+          type: claude_code
+          params:
+            role: reviewer
+            prompt: "Code quality analysis..."
+          outputs:
+            - maintainability_report
+
+        # This waits for all three above to complete
+        - id: summary
+          type: claude_code
+          depends_on:
+            - security
+            - performance
+            - maintainability
+          params:
+            role: reporter
+            prompt: |
+              Combine the analysis results:
+              Security: ${security_report}
+              Performance: ${performance_report}
+              Maintainability: ${maintainability_report}
+          outputs:
+            - final_summary
+```
+
+### Dependency Patterns
+
+```
+┌─────────────────────────────────────────────┐
+│              parallel_pipeline              │
+│                                             │
+│  ┌──────────┐ ┌───────────┐ ┌────────────┐ │
+│  │ security │ │performance│ │maintainab. │ │  ← No deps, run concurrently
+│  └────┬─────┘ └─────┬─────┘ └──────┬─────┘ │
+│       │             │              │        │
+│       └─────────────┼──────────────┘        │
+│                     ▼                       │
+│               ┌─────────┐                   │
+│               │ summary │                   │  ← depends_on: [security, performance, maintainability]
+│               └─────────┘                   │
+└─────────────────────────────────────────────┘
+```
+
+### `depends_on` Syntax
+
+```yaml
+# Single dependency (string)
+depends_on: security
+
+# Multiple dependencies (list)
+depends_on:
+  - security
+  - performance
+
+# Inline list
+depends_on: [security, performance, maintainability]
+```
+
+### Example 18: Complex Dependency Graph
+
+```yaml
+- id: parallel_build
+  type: parallel
+  params:
+    steps:
+      # Layer 1: Independent tasks
+      - id: fetch_deps
+        type: shell
+        params:
+          command: "pip install -r requirements.txt"
+
+      - id: lint
+        type: shell
+        params:
+          command: "ruff check ."
+
+      # Layer 2: Depends on fetch_deps
+      - id: build
+        type: shell
+        depends_on: fetch_deps
+        params:
+          command: "python -m build"
+
+      - id: test
+        type: shell
+        depends_on: fetch_deps
+        params:
+          command: "pytest"
+
+      # Layer 3: Depends on build and test
+      - id: package
+        type: shell
+        depends_on:
+          - build
+          - test
+        params:
+          command: "tar -czf dist.tar.gz dist/"
+```
+
+Execution order:
+1. `fetch_deps` and `lint` run concurrently
+2. `build` and `test` start after `fetch_deps` completes
+3. `package` starts after both `build` and `test` complete
+
+### Example 19: Fail-Fast Mode
+
+Stop all tasks when one fails:
+
+```yaml
+- id: critical_checks
+  type: parallel
+  params:
+    fail_fast: true        # Abort on first failure
+    max_workers: 4
+    steps:
+      - id: security_scan
+        type: shell
+        params:
+          command: "bandit -r src/"
+
+      - id: license_check
+        type: shell
+        params:
+          command: "liccheck -s setup.cfg"
+
+      - id: vulnerability_scan
+        type: shell
+        params:
+          command: "safety check"
+```
+
+### Context and Output Sharing
+
+Outputs from parallel sub-steps are merged into the workflow context:
+
+```yaml
+steps:
+  - id: parallel_analysis
+    type: parallel
+    params:
+      steps:
+        - id: task_a
+          type: claude_code
+          params:
+            prompt: "Generate report A"
+          outputs:
+            - report_a    # Available as ${report_a} after parallel step
+
+        - id: task_b
+          type: claude_code
+          params:
+            prompt: "Generate report B"
+          outputs:
+            - report_b    # Available as ${report_b} after parallel step
+
+  # This step can use ${report_a} and ${report_b}
+  - id: combine
+    type: claude_code
+    params:
+      prompt: |
+        Combine reports:
+        Report A: ${report_a}
+        Report B: ${report_b}
+```
+
+---
+
+For more examples, see the [workflows directory](../workflows/) in the repository.
