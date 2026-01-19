@@ -43,6 +43,25 @@ class ConditionConfig:
 
 
 @dataclass
+class FallbackConfig:
+    """Configuration for step fallback behavior."""
+
+    type: Literal["default_value", "alternate_step", "callback"]
+    value: Any = None  # For default_value: the value to use
+    step: dict | None = None  # For alternate_step: step config to execute
+    callback: str | None = None  # For callback: callback name to invoke
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "FallbackConfig":
+        return cls(
+            type=data.get("type", "default_value"),
+            value=data.get("value"),
+            step=data.get("step"),
+            callback=data.get("callback"),
+        )
+
+
+@dataclass
 class StepConfig:
     """Configuration for a workflow step."""
 
@@ -50,11 +69,14 @@ class StepConfig:
     type: Literal["claude_code", "openai", "shell", "parallel", "checkpoint"]
     params: dict = field(default_factory=dict)
     condition: ConditionConfig | None = None
-    on_failure: Literal["abort", "skip", "retry"] = "abort"
+    on_failure: Literal["abort", "skip", "retry", "fallback", "continue_with_default"] = "abort"
     max_retries: int = 3
     timeout_seconds: int = 300
     outputs: list[str] = field(default_factory=list)
     depends_on: list[str] = field(default_factory=list)
+    fallback: FallbackConfig | None = None
+    default_output: dict = field(default_factory=dict)  # For continue_with_default mode
+    circuit_breaker_key: str | None = None  # Key for circuit breaker tracking
 
     @classmethod
     def from_dict(cls, data: dict) -> StepConfig:
@@ -73,6 +95,11 @@ class StepConfig:
         if isinstance(depends_on, str):
             depends_on = [depends_on]
 
+        # Parse fallback config
+        fallback = None
+        if "fallback" in data:
+            fallback = FallbackConfig.from_dict(data["fallback"])
+
         return cls(
             id=data["id"],
             type=data["type"],
@@ -83,6 +110,9 @@ class StepConfig:
             timeout_seconds=data.get("timeout_seconds", 300),
             outputs=data.get("outputs", []),
             depends_on=depends_on,
+            fallback=fallback,
+            default_output=data.get("default_output", {}),
+            circuit_breaker_key=data.get("circuit_breaker_key"),
         )
 
 

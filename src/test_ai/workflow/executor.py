@@ -10,11 +10,55 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Callable
 
-from .loader import WorkflowConfig, StepConfig
+from .loader import WorkflowConfig, StepConfig, FallbackConfig
 from .parallel import ParallelExecutor, ParallelTask, ParallelStrategy
 from test_ai.utils.validation import substitute_shell_variables, validate_shell_command
+from test_ai.utils.circuit_breaker import CircuitBreaker, CircuitBreakerError
 
 logger = logging.getLogger(__name__)
+
+# Global circuit breakers for step types
+_circuit_breakers: dict[str, CircuitBreaker] = {}
+
+
+def configure_circuit_breaker(
+    key: str,
+    failure_threshold: int = 5,
+    recovery_timeout: float = 60.0,
+    success_threshold: int = 2,
+) -> CircuitBreaker:
+    """Configure a circuit breaker for a step type or custom key.
+
+    Args:
+        key: Identifier for the circuit breaker (e.g., step type or custom key)
+        failure_threshold: Number of failures before opening circuit
+        recovery_timeout: Seconds to wait before trying again
+        success_threshold: Successes needed in half-open to close circuit
+
+    Returns:
+        The configured CircuitBreaker instance
+    """
+    cb = CircuitBreaker(
+        name=key,
+        failure_threshold=failure_threshold,
+        recovery_timeout=recovery_timeout,
+        success_threshold=success_threshold,
+    )
+    _circuit_breakers[key] = cb
+    return cb
+
+
+def get_circuit_breaker(key: str) -> CircuitBreaker | None:
+    """Get circuit breaker by key."""
+    return _circuit_breakers.get(key)
+
+
+def reset_circuit_breakers() -> None:
+    """Reset all circuit breakers (for testing)."""
+    global _circuit_breakers
+    for cb in _circuit_breakers.values():
+        cb.reset()
+    _circuit_breakers = {}
 
 # Lazy-loaded API clients to avoid circular imports
 _claude_client = None
@@ -130,6 +174,8 @@ class WorkflowExecutor:
         contract_validator=None,
         budget_manager=None,
         dry_run: bool = False,
+        error_callback: Callable[[str, str, Exception], None] | None = None,
+        fallback_callbacks: dict[str, Callable[[StepConfig, dict, Exception], dict]] | None = None,
     ):
         """Initialize executor.
 
@@ -138,11 +184,15 @@ class WorkflowExecutor:
             contract_validator: Optional ContractValidator for contract validation
             budget_manager: Optional BudgetManager for token tracking
             dry_run: If True, use mock responses instead of real API calls
+            error_callback: Optional callback for error notifications (step_id, workflow_id, error)
+            fallback_callbacks: Dict of named callbacks for fallback handling
         """
         self.checkpoint_manager = checkpoint_manager
         self.contract_validator = contract_validator
         self.budget_manager = budget_manager
         self.dry_run = dry_run
+        self.error_callback = error_callback
+        self.fallback_callbacks = fallback_callbacks or {}
         self._handlers: dict[str, StepHandler] = {
             "shell": self._execute_shell,
             "checkpoint": self._execute_checkpoint,
@@ -231,12 +281,41 @@ class WorkflowExecutor:
 
                 # Handle step failure
                 if step_result.status == StepStatus.FAILED:
+                    # Notify error callback
+                    if self.error_callback:
+                        try:
+                            self.error_callback(
+                                step.id,
+                                workflow_id or "",
+                                Exception(step_result.error or "Unknown error"),
+                            )
+                        except Exception as cb_err:
+                            logger.warning(f"Error callback failed: {cb_err}")
+
                     if step.on_failure == "abort":
                         result.status = "failed"
                         result.error = f"Step '{step.id}' failed: {step_result.error}"
                         break
                     elif step.on_failure == "skip":
                         continue
+                    elif step.on_failure == "continue_with_default":
+                        # Use default output values
+                        step_result.status = StepStatus.SUCCESS
+                        step_result.output = step.default_output.copy()
+                        logger.info(f"Step '{step.id}' failed, using default output")
+                    elif step.on_failure == "fallback" and step.fallback:
+                        # Execute fallback strategy
+                        fallback_output = self._execute_fallback(
+                            step, step_result.error, workflow_id
+                        )
+                        if fallback_output is not None:
+                            step_result.status = StepStatus.SUCCESS
+                            step_result.output = fallback_output
+                            logger.info(f"Step '{step.id}' recovered via fallback")
+                        else:
+                            result.status = "failed"
+                            result.error = f"Step '{step.id}' failed and fallback failed"
+                            break
 
                 # Store outputs in context
                 for output_key in step.outputs:
@@ -304,6 +383,15 @@ class WorkflowExecutor:
             result.error = f"Unknown step type: {step.type}"
             return result
 
+        # Check circuit breaker if configured
+        cb_key = step.circuit_breaker_key or step.type
+        cb = _circuit_breakers.get(cb_key)
+        if cb and cb.is_open:
+            result.status = StepStatus.FAILED
+            result.error = f"Circuit breaker open for {cb_key}"
+            logger.warning(f"Step '{step.id}' skipped: circuit breaker open")
+            return result
+
         last_error = None
         for attempt in range(step.max_retries + 1):
             result.retries = attempt
@@ -317,11 +405,19 @@ class WorkflowExecutor:
                         input_data=step.params,
                         workflow_id=workflow_id,
                     ) as ctx:
-                        output = handler(step, self._context)
+                        # Use circuit breaker if configured
+                        if cb:
+                            output = cb.call(handler, step, self._context)
+                        else:
+                            output = handler(step, self._context)
                         ctx.output_data = output
                         ctx.tokens_used = output.get("tokens_used", 0)
                 else:
-                    output = handler(step, self._context)
+                    # Use circuit breaker if configured
+                    if cb:
+                        output = cb.call(handler, step, self._context)
+                    else:
+                        output = handler(step, self._context)
 
                 # Validate output contract if applicable
                 if self.contract_validator and role:
@@ -330,6 +426,12 @@ class WorkflowExecutor:
                 result.status = StepStatus.SUCCESS
                 result.output = output
                 result.tokens_used = output.get("tokens_used", 0)
+                break
+
+            except CircuitBreakerError as e:
+                # Circuit breaker opened during execution
+                result.status = StepStatus.FAILED
+                result.error = str(e)
                 break
 
             except Exception as e:
@@ -342,6 +444,53 @@ class WorkflowExecutor:
 
         result.duration_ms = int((time.time() - start_time) * 1000)
         return result
+
+    def _execute_fallback(
+        self, step: StepConfig, error: str | None, workflow_id: str | None
+    ) -> dict | None:
+        """Execute fallback strategy for a failed step.
+
+        Args:
+            step: The failed step configuration
+            error: The error message from the failed step
+            workflow_id: Current workflow ID
+
+        Returns:
+            Fallback output dict, or None if fallback failed
+        """
+        if not step.fallback:
+            return None
+
+        fallback = step.fallback
+        logger.info(f"Executing fallback ({fallback.type}) for step '{step.id}'")
+
+        try:
+            if fallback.type == "default_value":
+                # Return the configured default value
+                return {"fallback_value": fallback.value, "fallback_used": True}
+
+            elif fallback.type == "alternate_step" and fallback.step:
+                # Execute an alternate step
+                alt_step = StepConfig.from_dict(fallback.step)
+                alt_result = self._execute_step(alt_step, workflow_id)
+                if alt_result.status == StepStatus.SUCCESS:
+                    return alt_result.output
+                return None
+
+            elif fallback.type == "callback" and fallback.callback:
+                # Invoke a registered callback
+                if fallback.callback in self.fallback_callbacks:
+                    callback = self.fallback_callbacks[fallback.callback]
+                    return callback(step, self._context, Exception(error or "Unknown"))
+                else:
+                    logger.warning(f"Fallback callback '{fallback.callback}' not registered")
+                    return None
+
+        except Exception as e:
+            logger.error(f"Fallback execution failed: {e}")
+            return None
+
+        return None
 
     def _execute_shell(self, step: StepConfig, context: dict) -> dict:
         """Execute a shell command step.
