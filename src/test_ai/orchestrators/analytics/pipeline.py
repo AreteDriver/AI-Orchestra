@@ -76,9 +76,9 @@ class AnalyticsPipeline:
     """Orchestrates analytics workflows through modular stages.
 
     Example usage:
-        pipeline = AnalyticsPipeline("vdc_daily_analysis")
-        pipeline.add_stage(PipelineStage.COLLECT, vdc_collector.collect)
-        pipeline.add_stage(PipelineStage.ANALYZE, operational_analyzer.analyze)
+        pipeline = AnalyticsPipeline("daily_analysis")
+        pipeline.add_stage(PipelineStage.COLLECT, json_collector.collect)
+        pipeline.add_stage(PipelineStage.ANALYZE, threshold_analyzer.analyze)
         pipeline.add_stage(PipelineStage.VISUALIZE, chart_generator.generate)
         pipeline.add_stage(PipelineStage.REPORT, report_generator.generate)
 
@@ -227,16 +227,54 @@ class PipelineBuilder:
     """Fluent builder for creating common pipeline configurations."""
 
     @staticmethod
-    def vdc_operations_pipeline() -> AnalyticsPipeline:
-        """Create a pre-configured VDC operations analysis pipeline."""
-        from .collectors import VDCCollector
-        from .analyzers import OperationalAnalyzer
+    def trend_analysis_pipeline() -> AnalyticsPipeline:
+        """Create a pipeline for analyzing metrics trends."""
+        from .collectors import JSONCollector
+        from .analyzers import TrendAnalyzer
         from .reporters import ReportGenerator
 
-        pipeline = AnalyticsPipeline("vdc_operations")
+        pipeline = AnalyticsPipeline("trend_analysis")
 
-        collector = VDCCollector()
-        analyzer = OperationalAnalyzer()
+        collector = JSONCollector()
+        analyzer = TrendAnalyzer()
+        reporter = ReportGenerator()
+
+        return (
+            pipeline.add_stage(PipelineStage.COLLECT, collector.collect)
+            .add_stage(PipelineStage.ANALYZE, analyzer.analyze)
+            .add_stage(PipelineStage.REPORT, reporter.generate)
+        )
+
+    @staticmethod
+    def threshold_alert_pipeline() -> AnalyticsPipeline:
+        """Create a pipeline for threshold-based alerting."""
+        from .collectors import JSONCollector
+        from .analyzers import ThresholdAnalyzer
+        from .reporters import AlertGenerator
+
+        pipeline = AnalyticsPipeline("threshold_alerts")
+
+        collector = JSONCollector()
+        analyzer = ThresholdAnalyzer()
+        alerter = AlertGenerator()
+
+        return (
+            pipeline.add_stage(PipelineStage.COLLECT, collector.collect)
+            .add_stage(PipelineStage.ANALYZE, analyzer.analyze)
+            .add_stage(PipelineStage.ALERT, alerter.generate)
+        )
+
+    @staticmethod
+    def full_analysis_pipeline() -> AnalyticsPipeline:
+        """Create a comprehensive analysis pipeline with AI-powered reporting."""
+        from .collectors import JSONCollector
+        from .analyzers import CompositeAnalyzer, TrendAnalyzer, ThresholdAnalyzer
+        from .reporters import ReportGenerator
+
+        pipeline = AnalyticsPipeline("full_analysis")
+
+        collector = JSONCollector()
+        analyzer = CompositeAnalyzer([TrendAnalyzer(), ThresholdAnalyzer()])
         reporter = ReportGenerator()
 
         return (
@@ -245,47 +283,7 @@ class PipelineBuilder:
             .add_agent_stage(
                 PipelineStage.VISUALIZE,
                 "visualizer",
-                "Create visualization recommendations for VDC operational data:\n\n{{context}}",
+                "Create visualization recommendations for this analysis data:\n\n{{context}}",
             )
             .add_stage(PipelineStage.REPORT, reporter.generate)
-        )
-
-    @staticmethod
-    def metrics_trend_pipeline() -> AnalyticsPipeline:
-        """Create a pipeline for analyzing metrics trends."""
-        from .collectors import MetricsCollector
-        from .analyzers import TrendAnalyzer
-
-        pipeline = AnalyticsPipeline("metrics_trends")
-
-        collector = MetricsCollector()
-        analyzer = TrendAnalyzer()
-
-        return (
-            pipeline.add_stage(PipelineStage.COLLECT, collector.collect)
-            .add_stage(PipelineStage.ANALYZE, analyzer.analyze)
-            .add_agent_stage(
-                PipelineStage.REPORT,
-                "reporter",
-                "Generate trend analysis report:\n\n{{context}}",
-            )
-        )
-
-    @staticmethod
-    def alert_pipeline() -> AnalyticsPipeline:
-        """Create a pipeline for generating operational alerts."""
-        from .collectors import VDCCollector
-        from .analyzers import OperationalAnalyzer
-        from .reporters import AlertGenerator
-
-        pipeline = AnalyticsPipeline("alerts")
-
-        collector = VDCCollector()
-        analyzer = OperationalAnalyzer()
-        alerter = AlertGenerator()
-
-        return (
-            pipeline.add_stage(PipelineStage.COLLECT, collector.collect)
-            .add_stage(PipelineStage.ANALYZE, analyzer.analyze)
-            .add_stage(PipelineStage.ALERT, alerter.generate)
         )

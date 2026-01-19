@@ -69,136 +69,6 @@ class DataAnalyzer(ABC):
         pass
 
 
-class OperationalAnalyzer(DataAnalyzer):
-    """Analyzer for VDC operational data."""
-
-    def analyze(self, data: Any, config: dict) -> AnalysisResult:
-        """Analyze VDC operational metrics.
-
-        Config options:
-            takt_threshold: float - Multiplier for takt time alerts (default: 1.5)
-            shift_warning_pct: int - Shift progress warning threshold (default: 40)
-        """
-        _takt_threshold = config.get("takt_threshold", 1.5)  # noqa: F841
-        shift_warning_pct = config.get("shift_warning_pct", 40)
-
-        findings = []
-        metrics = {}
-        recommendations = []
-        max_severity = "info"
-
-        # Handle different input types
-        if hasattr(data, "data"):
-            source_data = data.data
-        elif isinstance(data, dict):
-            source_data = data
-        else:
-            source_data = {}
-
-        # Analyze bottlenecks
-        bottlenecks = source_data.get("bottlenecks", [])
-        if bottlenecks:
-            metrics["bottleneck_count"] = len(bottlenecks)
-
-            for bn in bottlenecks:
-                severity = bn.get("severity_level", "minor")
-                stage = bn.get("stage", "unknown")
-                avg_time = bn.get("avg_time_minutes", 0)
-                takt_time = bn.get("takt_time_minutes", 1)
-
-                if severity == "critical":
-                    max_severity = "critical"
-                    findings.append(
-                        {
-                            "severity": "critical",
-                            "category": "bottleneck",
-                            "message": f"Critical bottleneck at {stage}: {avg_time:.0f}min avg vs {takt_time}min takt",
-                            "data": bn,
-                        }
-                    )
-                    recommendations.append(
-                        f"URGENT: Add resources to {stage} or investigate process issues"
-                    )
-                elif severity == "warning":
-                    if max_severity != "critical":
-                        max_severity = "warning"
-                    findings.append(
-                        {
-                            "severity": "warning",
-                            "category": "bottleneck",
-                            "message": f"Bottleneck forming at {stage}: {avg_time:.0f}min avg vs {takt_time}min takt",
-                            "data": bn,
-                        }
-                    )
-
-        # Analyze shift progress
-        for shift_key in ["day_shift", "night_shift"]:
-            shift_data = source_data.get(shift_key, {})
-            if shift_data and isinstance(shift_data, dict):
-                pct = shift_data.get("percent_complete", 0)
-                shift_name = shift_data.get("shift", shift_key)
-
-                metrics[f"{shift_name}_progress"] = pct
-
-                if pct < shift_warning_pct:
-                    if max_severity == "info":
-                        max_severity = "warning"
-                    findings.append(
-                        {
-                            "severity": "warning",
-                            "category": "shift_progress",
-                            "message": f"{shift_name.title()} shift at {pct}% - below target",
-                            "data": shift_data,
-                        }
-                    )
-                    recommendations.append(
-                        f"Review {shift_name} shift resource allocation"
-                    )
-
-        # Analyze operational summary
-        ops = source_data.get("operational", {})
-        if ops:
-            vehicles_by_status = ops.get("vehicles_by_status", {})
-            total_vehicles = sum(vehicles_by_status.values())
-            metrics["total_vehicles"] = total_vehicles
-
-            in_production = vehicles_by_status.get("in_production", 0)
-            metrics["vehicles_in_production"] = in_production
-
-            # Check for work order issues
-            wo_status = ops.get("work_orders_by_status", {})
-            failed_qc = wo_status.get("failed_qc", 0)
-            if failed_qc > 0:
-                findings.append(
-                    {
-                        "severity": "warning",
-                        "category": "quality",
-                        "message": f"{failed_qc} work orders failed QC",
-                        "data": {"failed_qc_count": failed_qc},
-                    }
-                )
-                recommendations.append("Review QC failures and identify root causes")
-
-        # Add general recommendations based on findings
-        if not findings:
-            findings.append(
-                {
-                    "severity": "info",
-                    "category": "status",
-                    "message": "Operations running normally",
-                }
-            )
-
-        return AnalysisResult(
-            analyzer="operational",
-            analyzed_at=datetime.now(timezone.utc),
-            findings=findings,
-            metrics=metrics,
-            recommendations=recommendations,
-            severity=max_severity,
-        )
-
-
 class TrendAnalyzer(DataAnalyzer):
     """Analyzer for identifying trends in metrics data."""
 
@@ -291,6 +161,116 @@ class TrendAnalyzer(DataAnalyzer):
 
         return AnalysisResult(
             analyzer="trends",
+            analyzed_at=datetime.now(timezone.utc),
+            findings=findings,
+            metrics=metrics,
+            recommendations=recommendations,
+            severity=max_severity,
+        )
+
+
+class ThresholdAnalyzer(DataAnalyzer):
+    """Analyzer that checks metrics against configurable thresholds."""
+
+    def analyze(self, data: Any, config: dict) -> AnalysisResult:
+        """Analyze data against threshold rules.
+
+        Config options:
+            thresholds: dict[str, dict] - Threshold definitions
+                key: metric path (dot notation)
+                value: {"warning": float, "critical": float, "direction": "above"|"below"}
+        """
+        thresholds = config.get("thresholds", {})
+
+        findings = []
+        metrics = {}
+        recommendations = []
+        max_severity = "info"
+
+        # Handle different input types
+        if hasattr(data, "data"):
+            source_data = data.data
+        elif isinstance(data, dict):
+            source_data = data
+        else:
+            source_data = {}
+
+        def get_nested(d: dict, path: str) -> Any:
+            """Get value from nested dict using dot notation."""
+            keys = path.split(".")
+            current = d
+            for key in keys:
+                if isinstance(current, dict) and key in current:
+                    current = current[key]
+                else:
+                    return None
+            return current
+
+        for metric_path, threshold_config in thresholds.items():
+            value = get_nested(source_data, metric_path)
+            if value is None:
+                continue
+
+            metrics[metric_path] = value
+
+            warning_threshold = threshold_config.get("warning")
+            critical_threshold = threshold_config.get("critical")
+            direction = threshold_config.get("direction", "above")
+
+            if direction == "above":
+                if critical_threshold is not None and value >= critical_threshold:
+                    max_severity = "critical"
+                    findings.append(
+                        {
+                            "severity": "critical",
+                            "category": "threshold",
+                            "message": f"{metric_path} = {value} exceeds critical threshold {critical_threshold}",
+                        }
+                    )
+                    recommendations.append(f"Investigate critical {metric_path}")
+                elif warning_threshold is not None and value >= warning_threshold:
+                    if max_severity != "critical":
+                        max_severity = "warning"
+                    findings.append(
+                        {
+                            "severity": "warning",
+                            "category": "threshold",
+                            "message": f"{metric_path} = {value} exceeds warning threshold {warning_threshold}",
+                        }
+                    )
+            else:  # direction == "below"
+                if critical_threshold is not None and value <= critical_threshold:
+                    max_severity = "critical"
+                    findings.append(
+                        {
+                            "severity": "critical",
+                            "category": "threshold",
+                            "message": f"{metric_path} = {value} below critical threshold {critical_threshold}",
+                        }
+                    )
+                    recommendations.append(f"Investigate critical {metric_path}")
+                elif warning_threshold is not None and value <= warning_threshold:
+                    if max_severity != "critical":
+                        max_severity = "warning"
+                    findings.append(
+                        {
+                            "severity": "warning",
+                            "category": "threshold",
+                            "message": f"{metric_path} = {value} below warning threshold {warning_threshold}",
+                        }
+                    )
+
+        if not findings:
+            findings.append(
+                {
+                    "severity": "info",
+                    "category": "thresholds",
+                    "message": "All metrics within acceptable thresholds",
+                }
+            )
+
+        return AnalysisResult(
+            analyzer="threshold",
             analyzed_at=datetime.now(timezone.utc),
             findings=findings,
             metrics=metrics,

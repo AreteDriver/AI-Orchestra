@@ -8,10 +8,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, TYPE_CHECKING
-
-if TYPE_CHECKING:
-    pass
+from typing import Any
 
 
 @dataclass
@@ -63,90 +60,6 @@ class DataCollector(ABC):
             CollectedData with collected information
         """
         pass
-
-
-class VDCCollector(DataCollector):
-    """Collector for VDC operational data."""
-
-    def __init__(self, metrics_db_path: str = None, logistics_db_path: str = None):
-        from test_ai.integrations.vdc_metrics import VDCMetricsClient
-
-        self.client = VDCMetricsClient(
-            metrics_db_path=metrics_db_path,
-            logistics_db_path=logistics_db_path,
-        )
-
-    def collect(self, context: Any, config: dict) -> CollectedData:
-        """Collect VDC operational metrics.
-
-        Config options:
-            include_performance: bool - Include app performance metrics
-            include_bottlenecks: bool - Include bottleneck detection
-            include_shifts: bool - Include shift progress data
-            performance_minutes: int - Time window for performance metrics
-        """
-        include_performance = config.get("include_performance", True)
-        include_bottlenecks = config.get("include_bottlenecks", True)
-        include_shifts = config.get("include_shifts", True)
-        performance_minutes = config.get("performance_minutes", 60)
-
-        data = {}
-
-        # Operational summary
-        data["operational"] = self.client.get_operational_summary()
-
-        # App performance metrics
-        if include_performance:
-            data["app_performance"] = self.client.get_app_performance(
-                performance_minutes
-            )
-
-        # Bottleneck detection
-        if include_bottlenecks:
-            data["bottlenecks"] = self.client.get_bottlenecks()
-
-        # Shift progress
-        if include_shifts:
-            data["day_shift"] = self.client.get_shift_progress("day")
-            data["night_shift"] = self.client.get_shift_progress("night")
-
-        return CollectedData(
-            source="vdc_operations",
-            collected_at=datetime.now(timezone.utc),
-            data=data,
-            metadata={
-                "include_performance": include_performance,
-                "include_bottlenecks": include_bottlenecks,
-                "include_shifts": include_shifts,
-            },
-        )
-
-
-class MetricsCollector(DataCollector):
-    """Collector for application metrics from metrics database."""
-
-    def __init__(self, metrics_db_path: str = None):
-        from test_ai.integrations.vdc_metrics import VDCMetricsClient
-
-        self.client = VDCMetricsClient(metrics_db_path=metrics_db_path)
-
-    def collect(self, context: Any, config: dict) -> CollectedData:
-        """Collect application metrics.
-
-        Config options:
-            minutes: int - Time window for metrics (default: 60)
-            app_filter: str - Filter by app name (optional)
-        """
-        minutes = config.get("minutes", 60)
-
-        data = self.client.get_app_performance(minutes)
-
-        return CollectedData(
-            source="app_metrics",
-            collected_at=datetime.now(timezone.utc),
-            data={"metrics": data},
-            metadata={"minutes": minutes},
-        )
 
 
 class JSONCollector(DataCollector):

@@ -5,23 +5,37 @@ visualization, and reporting workflows.
 """
 
 from .pipeline import AnalyticsPipeline, PipelineStage, PipelineResult
-from .collectors import DataCollector, VDCCollector, MetricsCollector
-from .analyzers import DataAnalyzer, OperationalAnalyzer, TrendAnalyzer
+from .collectors import DataCollector, JSONCollector, AggregateCollector, CollectedData
+from .analyzers import (
+    DataAnalyzer,
+    AnalysisResult,
+    TrendAnalyzer,
+    ThresholdAnalyzer,
+    CompositeAnalyzer,
+)
 from .visualizers import ChartGenerator, DashboardBuilder
 from .reporters import ReportGenerator, AlertGenerator
 
 __all__ = [
+    # Pipeline
     "AnalyticsPipeline",
     "PipelineStage",
     "PipelineResult",
+    # Collectors
     "DataCollector",
-    "VDCCollector",
-    "MetricsCollector",
+    "CollectedData",
+    "JSONCollector",
+    "AggregateCollector",
+    # Analyzers
     "DataAnalyzer",
-    "OperationalAnalyzer",
+    "AnalysisResult",
     "TrendAnalyzer",
+    "ThresholdAnalyzer",
+    "CompositeAnalyzer",
+    # Visualizers
     "ChartGenerator",
     "DashboardBuilder",
+    # Reporters
     "ReportGenerator",
     "AlertGenerator",
 ]

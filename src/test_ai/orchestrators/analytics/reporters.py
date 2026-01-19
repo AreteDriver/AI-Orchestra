@@ -142,7 +142,7 @@ class ReportGenerator:
             format: str - Output format ("markdown", "html", "text")
             include_recommendations: bool - Include action items
         """
-        title = config.get("title", "VDC Operations Report")
+        title = config.get("title", "Analytics Report")
         output_format = config.get("format", "markdown")
         include_recommendations = config.get("include_recommendations", True)
 
@@ -317,7 +317,7 @@ class AlertGenerator:
             source: str - Alert source identifier
         """
         min_severity = config.get("min_severity", "warning")
-        source = config.get("source", "vdc_analytics")
+        source = config.get("source", "analytics")
 
         severity_levels = {"info": 0, "warning": 1, "critical": 2}
         min_level = severity_levels.get(min_severity, 1)

@@ -190,7 +190,7 @@ class ChartGenerator:
             "import streamlit as st",
             "import pandas as pd",
             "",
-            "# Auto-generated VDC visualization code",
+            "# Auto-generated visualization code",
             "",
         ]
 
@@ -236,7 +236,7 @@ class DashboardBuilder:
             layout: str - "grid" or "vertical"
             refresh_interval: int - Auto-refresh in seconds
         """
-        title = config.get("title", "VDC Operations Dashboard")
+        title = config.get("title", "Analytics Dashboard")
         layout = config.get("layout", "vertical")
         refresh_interval = config.get("refresh_interval", 600)
 
