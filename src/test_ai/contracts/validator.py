@@ -175,45 +175,60 @@ class ContractValidator:
 
         return output_result, input_result
 
+    def _check_planner_quality(self, data: dict) -> list[str]:
+        """Check planner output quality."""
+        warnings = []
+        tasks = data.get("tasks", [])
+        if len(tasks) > 10:
+            warnings.append(
+                f"Plan has {len(tasks)} tasks - consider breaking into smaller chunks"
+            )
+        if not data.get("risks"):
+            warnings.append("Plan has no identified risks")
+        return warnings
+
+    def _check_builder_quality(self, data: dict) -> list[str]:
+        """Check builder output quality."""
+        warnings = []
+        if len(data.get("code", "")) > 10000:
+            warnings.append("Large code output - consider smaller increments")
+        if data.get("status") == "partial" and not data.get("notes"):
+            warnings.append(
+                "Partial completion without notes explaining what's missing"
+            )
+        return warnings
+
+    def _check_tester_quality(self, data: dict) -> list[str]:
+        """Check tester output quality."""
+        warnings = []
+        if data.get("tests_run", 0) == 0:
+            warnings.append("No tests were run")
+        coverage = data.get("coverage")
+        if coverage is not None and coverage < 50:
+            warnings.append(f"Low test coverage: {coverage}%")
+        return warnings
+
+    def _check_reviewer_quality(self, data: dict) -> list[str]:
+        """Check reviewer output quality."""
+        warnings = []
+        if data.get("approved") and data.get("findings"):
+            critical = sum(
+                1 for f in data["findings"] if f.get("severity") == "critical"
+            )
+            if critical > 0:
+                warnings.append(f"Approved with {critical} critical findings")
+        return warnings
+
     def _check_output_quality(self, role: str, data: dict) -> list[str]:
         """Check output data quality beyond schema validation."""
-        warnings = []
-
-        # Role-specific quality checks
-        if role == "planner":
-            tasks = data.get("tasks", [])
-            if len(tasks) > 10:
-                warnings.append(
-                    f"Plan has {len(tasks)} tasks - consider breaking into smaller chunks"
-                )
-            if not data.get("risks"):
-                warnings.append("Plan has no identified risks")
-
-        elif role == "builder":
-            code = data.get("code", "")
-            if len(code) > 10000:
-                warnings.append("Large code output - consider smaller increments")
-            if data.get("status") == "partial" and not data.get("notes"):
-                warnings.append(
-                    "Partial completion without notes explaining what's missing"
-                )
-
-        elif role == "tester":
-            if data.get("tests_run", 0) == 0:
-                warnings.append("No tests were run")
-            coverage = data.get("coverage")
-            if coverage is not None and coverage < 50:
-                warnings.append(f"Low test coverage: {coverage}%")
-
-        elif role == "reviewer":
-            if data.get("approved") and data.get("findings"):
-                critical = sum(
-                    1 for f in data["findings"] if f.get("severity") == "critical"
-                )
-                if critical > 0:
-                    warnings.append(f"Approved with {critical} critical findings")
-
-        return warnings
+        checkers = {
+            "planner": self._check_planner_quality,
+            "builder": self._check_builder_quality,
+            "tester": self._check_tester_quality,
+            "reviewer": self._check_reviewer_quality,
+        }
+        checker = checkers.get(role)
+        return checker(data) if checker else []
 
     def get_history(self, limit: int = 20) -> list[dict]:
         """Get recent validation history.

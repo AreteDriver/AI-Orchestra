@@ -438,6 +438,56 @@ class ParallelExecutor:
             on_complete(task_id, res)
         return False
 
+    def _check_ready_or_deadlock(
+        self, pending: dict, completed_ids: set[str]
+    ) -> list[ParallelTask] | None:
+        """Get ready tasks or raise on deadlock.
+
+        Returns:
+            List of ready tasks, or None if no pending tasks remain
+        Raises:
+            ValueError: If deadlock detected (pending but none ready)
+        """
+        ready = self._get_ready_tasks(pending, completed_ids)
+        if not ready:
+            if pending:
+                raise ValueError("Deadlock: no tasks ready but some pending")
+            return None
+        return ready
+
+    def _process_completed_task(
+        self,
+        task_id: str,
+        res: Any,
+        err: Exception | None,
+        pending: dict,
+        result: ParallelResult,
+        completed_ids: set[str],
+        on_complete: Callable[[str, Any], None] | None,
+        on_error: Callable[[str, Exception], None] | None,
+        fail_fast: bool,
+        async_tasks: dict,
+    ) -> bool:
+        """Process a completed task result.
+
+        Returns:
+            True if should cancel remaining tasks
+        """
+        task = pending[task_id]
+        failed = self._record_task_completion(
+            task_id, res, err, task, result, on_complete, on_error
+        )
+
+        should_cancel = failed and fail_fast
+        if should_cancel:
+            self._cancel_async_tasks(async_tasks, task_id, pending, result)
+
+        completed_ids.add(task_id)
+        if task_id in pending:
+            del pending[task_id]
+
+        return should_cancel
+
     async def _execute_async(
         self,
         tasks: list[ParallelTask],
@@ -461,11 +511,8 @@ class ParallelExecutor:
                 )
 
         while pending and not should_cancel:
-            ready = self._get_ready_tasks(pending, completed_ids)
-
-            if not ready:
-                if pending:
-                    raise ValueError("Deadlock: no tasks ready but some pending")
+            ready = self._check_ready_or_deadlock(pending, completed_ids)
+            if ready is None:
                 break
 
             async_tasks = {
@@ -482,20 +529,10 @@ class ParallelExecutor:
                     continue
 
                 task_id, res, err = item
-                task = pending[task_id]
-
-                failed = self._record_task_completion(
-                    task_id, res, err, task, result, on_complete, on_error
+                should_cancel = self._process_completed_task(
+                    task_id, res, err, pending, result, completed_ids,
+                    on_complete, on_error, fail_fast, async_tasks
                 )
-
-                if failed and fail_fast:
-                    should_cancel = True
-                    self._cancel_async_tasks(async_tasks, task_id, pending, result)
-
-                completed_ids.add(task_id)
-                if task_id in pending:
-                    del pending[task_id]
-
                 if should_cancel:
                     break
 

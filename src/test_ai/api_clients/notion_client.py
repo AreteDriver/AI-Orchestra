@@ -297,38 +297,38 @@ class NotionClientWrapper:
         """Extract value from a Notion property."""
         prop_type = prop.get("type", "")
 
-        if prop_type == "title":
-            return self._extract_rich_text(prop.get("title", []))
-        elif prop_type == "rich_text":
-            return self._extract_rich_text(prop.get("rich_text", []))
-        elif prop_type == "number":
-            return prop.get("number")
-        elif prop_type == "select":
-            select = prop.get("select")
-            return select.get("name") if select else None
-        elif prop_type == "multi_select":
+        # Simple direct extractions
+        simple_types = {"number", "checkbox", "url", "email", "phone_number"}
+        if prop_type in simple_types:
+            return prop.get(prop_type) if prop_type != "checkbox" else prop.get("checkbox", False)
+
+        # Rich text types
+        if prop_type in ("title", "rich_text"):
+            return self._extract_rich_text(prop.get(prop_type, []))
+
+        # Types that extract .name from nested object
+        name_types = {"select", "status"}
+        if prop_type in name_types:
+            obj = prop.get(prop_type)
+            return obj.get("name") if obj else None
+
+        # Array extractions
+        if prop_type == "multi_select":
             return [s.get("name") for s in prop.get("multi_select", [])]
-        elif prop_type == "date":
+        if prop_type == "relation":
+            return [r.get("id") for r in prop.get("relation", [])]
+
+        # Date extraction
+        if prop_type == "date":
             date = prop.get("date")
             return date.get("start") if date else None
-        elif prop_type == "checkbox":
-            return prop.get("checkbox", False)
-        elif prop_type == "url":
-            return prop.get("url")
-        elif prop_type == "email":
-            return prop.get("email")
-        elif prop_type == "phone_number":
-            return prop.get("phone_number")
-        elif prop_type == "status":
-            status = prop.get("status")
-            return status.get("name") if status else None
-        elif prop_type == "relation":
-            return [r.get("id") for r in prop.get("relation", [])]
-        elif prop_type == "formula":
+
+        # Formula extraction
+        if prop_type == "formula":
             formula = prop.get("formula", {})
             return formula.get(formula.get("type"))
-        else:
-            return None
+
+        return None
 
     def _extract_rich_text(self, rich_text: List[Dict]) -> str:
         """Extract plain text from rich text array."""

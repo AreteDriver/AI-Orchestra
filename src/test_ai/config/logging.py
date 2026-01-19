@@ -34,6 +34,14 @@ class SanitizingFilter(logging.Filter):
 class JSONFormatter(logging.Formatter):
     """Format log records as JSON for structured logging."""
 
+    # Optional fields to extract from log records
+    _OPTIONAL_FIELDS = (
+        "trace_id", "span_id", "parent_span_id",
+        "request_id", "method", "path",
+        "http.method", "http.path", "http.status_code",
+        "status_code", "duration_ms", "client_ip",
+    )
+
     def format(self, record: logging.LogRecord) -> str:
         """Format log record as JSON string."""
         log_data: Dict[str, Any] = {
@@ -43,33 +51,10 @@ class JSONFormatter(logging.Formatter):
             "message": record.getMessage(),
         }
 
-        # Add trace context if present (from tracing module)
-        if hasattr(record, "trace_id"):
-            log_data["trace_id"] = record.trace_id
-        if hasattr(record, "span_id"):
-            log_data["span_id"] = record.span_id
-        if hasattr(record, "parent_span_id"):
-            log_data["parent_span_id"] = record.parent_span_id
-
-        # Add extra fields if present
-        if hasattr(record, "request_id"):
-            log_data["request_id"] = record.request_id
-        if hasattr(record, "method"):
-            log_data["method"] = record.method
-        if hasattr(record, "path"):
-            log_data["path"] = record.path
-        if hasattr(record, "http.method"):
-            log_data["http.method"] = getattr(record, "http.method")
-        if hasattr(record, "http.path"):
-            log_data["http.path"] = getattr(record, "http.path")
-        if hasattr(record, "http.status_code"):
-            log_data["http.status_code"] = getattr(record, "http.status_code")
-        if hasattr(record, "status_code"):
-            log_data["status_code"] = record.status_code
-        if hasattr(record, "duration_ms"):
-            log_data["duration_ms"] = record.duration_ms
-        if hasattr(record, "client_ip"):
-            log_data["client_ip"] = record.client_ip
+        # Add optional fields if present
+        for field in self._OPTIONAL_FIELDS:
+            if hasattr(record, field):
+                log_data[field] = getattr(record, field)
 
         # Add exception info if present
         if record.exc_info:

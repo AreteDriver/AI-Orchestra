@@ -1144,6 +1144,62 @@ Write tests that include:
         console.print(f"\n[red]Error:[/red] {result.get('error', 'Unknown error')}")
 
 
+def _get_git_diff_context(target: str, cwd: Path) -> str:
+    """Get code context from git diff."""
+    try:
+        diff = subprocess.run(
+            ["git", "diff", target],
+            capture_output=True,
+            text=True,
+            cwd=cwd,
+        )
+        if diff.returncode == 0:
+            return f"\nGit diff:\n```diff\n{diff.stdout[:8000]}\n```"
+    except Exception:
+        pass
+    return ""
+
+
+def _get_file_context(target_path: Path) -> str:
+    """Get code context from a single file."""
+    try:
+        return f"\nCode to review:\n```\n{target_path.read_text()[:8000]}\n```"
+    except Exception:
+        return ""
+
+
+def _get_directory_context(target_path: Path) -> str:
+    """Get code context from a directory of files."""
+    files = list(target_path.rglob("*.py"))[:5]
+    code_snippets = []
+    for f in files:
+        try:
+            code_snippets.append(f"# {f}\n{f.read_text()[:2000]}")
+        except Exception:
+            pass
+    if code_snippets:
+        return f"\nFiles to review:\n```\n{'---'.join(code_snippets)}\n```"
+    return ""
+
+
+def _gather_review_code_context(target: str, context: dict) -> str:
+    """Gather code context for review based on target type."""
+    # Check if target is a git ref
+    if target.startswith("HEAD") or target.startswith("origin/"):
+        return _get_git_diff_context(target, context["path"])
+
+    target_path = Path(target)
+    if not target_path.exists():
+        return ""
+
+    if target_path.is_file():
+        return _get_file_context(target_path)
+    if target_path.is_dir():
+        return _get_directory_context(target_path)
+
+    return ""
+
+
 @app.command()
 def review(
     target: str = typer.Argument(
@@ -1166,43 +1222,7 @@ def review(
     client = get_claude_client()
     context = detect_codebase_context()
     context_str = format_context_for_prompt(context)
-
-    # Check if target is a git ref
-    code_context = ""
-    if target.startswith("HEAD") or target.startswith("origin/"):
-        try:
-            diff = subprocess.run(
-                ["git", "diff", target],
-                capture_output=True,
-                text=True,
-                cwd=context["path"],
-            )
-            if diff.returncode == 0:
-                code_context = f"\nGit diff:\n```diff\n{diff.stdout[:8000]}\n```"
-        except Exception:
-            pass
-    else:
-        target_path = Path(target)
-        if target_path.exists():
-            if target_path.is_file():
-                try:
-                    code_context = (
-                        f"\nCode to review:\n```\n{target_path.read_text()[:8000]}\n```"
-                    )
-                except Exception:
-                    pass
-            elif target_path.is_dir():
-                files = list(target_path.rglob("*.py"))[:5]
-                code_snippets = []
-                for f in files:
-                    try:
-                        code_snippets.append(f"# {f}\n{f.read_text()[:2000]}")
-                    except Exception:
-                        pass
-                if code_snippets:
-                    code_context = (
-                        f"\nFiles to review:\n```\n{'---'.join(code_snippets)}\n```"
-                    )
+    code_context = _gather_review_code_context(target, context)
 
     console.print(
         Panel(

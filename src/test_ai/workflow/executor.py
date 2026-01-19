@@ -254,6 +254,53 @@ class WorkflowExecutor:
                 return i
         return 0
 
+    def _check_budget_exceeded(self, step: StepConfig, result: ExecutionResult) -> bool:
+        """Check if token budget would be exceeded by step.
+
+        Args:
+            step: Step to check
+            result: ExecutionResult to update if budget exceeded
+
+        Returns:
+            True if budget exceeded, False if OK to proceed
+        """
+        if not self.budget_manager:
+            return False
+        estimated_tokens = step.params.get("estimated_tokens", 1000)
+        if not self.budget_manager.can_allocate(estimated_tokens):
+            result.status = "failed"
+            result.error = "Token budget exceeded"
+            return True
+        return False
+
+    def _record_step_completion(
+        self, step: StepConfig, step_result: StepResult, result: ExecutionResult
+    ) -> None:
+        """Record step completion in result and budget manager.
+
+        Args:
+            step: Completed step
+            step_result: Step result to record
+            result: ExecutionResult to update
+        """
+        result.steps.append(step_result)
+        result.total_tokens += step_result.tokens_used
+        result.total_duration_ms += step_result.duration_ms
+
+        if self.budget_manager and step_result.tokens_used > 0:
+            self.budget_manager.record_usage(step.id, step_result.tokens_used)
+
+    def _store_step_outputs(self, step: StepConfig, step_result: StepResult) -> None:
+        """Store step outputs in execution context.
+
+        Args:
+            step: Step with output keys
+            step_result: Step result containing outputs
+        """
+        for output_key in step.outputs:
+            if output_key in step_result.output:
+                self._context[output_key] = step_result.output[output_key]
+
     def _handle_step_failure(
         self,
         step: StepConfig,
@@ -443,24 +490,12 @@ class WorkflowExecutor:
         error = None
         try:
             for step in workflow.steps[start_index:]:
-                # Check budget before execution
-                if self.budget_manager and not self.budget_manager.can_allocate(
-                    step.params.get("estimated_tokens", 1000)
-                ):
-                    result.status = "failed"
-                    result.error = "Token budget exceeded"
+                if self._check_budget_exceeded(step, result):
                     break
 
                 step_result = self._execute_step(step, workflow_id)
-                result.steps.append(step_result)
-                result.total_tokens += step_result.tokens_used
-                result.total_duration_ms += step_result.duration_ms
+                self._record_step_completion(step, step_result, result)
 
-                # Record tokens in budget manager
-                if self.budget_manager and step_result.tokens_used > 0:
-                    self.budget_manager.record_usage(step.id, step_result.tokens_used)
-
-                # Handle step failure
                 if step_result.status == StepStatus.FAILED:
                     action = self._handle_step_failure(
                         step, step_result, result, workflow_id
@@ -470,12 +505,8 @@ class WorkflowExecutor:
                     if action == "skip":
                         continue
 
-                # Store outputs in context
-                for output_key in step.outputs:
-                    if output_key in step_result.output:
-                        self._context[output_key] = step_result.output[output_key]
+                self._store_step_outputs(step, step_result)
             else:
-                # All steps completed
                 result.status = "success"
 
         except Exception as e:
@@ -523,24 +554,12 @@ class WorkflowExecutor:
         error = None
         try:
             for step in workflow.steps[start_index:]:
-                # Check budget before execution
-                if self.budget_manager and not self.budget_manager.can_allocate(
-                    step.params.get("estimated_tokens", 1000)
-                ):
-                    result.status = "failed"
-                    result.error = "Token budget exceeded"
+                if self._check_budget_exceeded(step, result):
                     break
 
                 step_result = await self._execute_step_async(step, workflow_id)
-                result.steps.append(step_result)
-                result.total_tokens += step_result.tokens_used
-                result.total_duration_ms += step_result.duration_ms
+                self._record_step_completion(step, step_result, result)
 
-                # Record tokens in budget manager
-                if self.budget_manager and step_result.tokens_used > 0:
-                    self.budget_manager.record_usage(step.id, step_result.tokens_used)
-
-                # Handle step failure
                 if step_result.status == StepStatus.FAILED:
                     action = await self._handle_step_failure_async(
                         step, step_result, result, workflow_id
@@ -550,10 +569,7 @@ class WorkflowExecutor:
                     if action == "skip":
                         continue
 
-                # Store outputs in context
-                for output_key in step.outputs:
-                    if output_key in step_result.output:
-                        self._context[output_key] = step_result.output[output_key]
+                self._store_step_outputs(step, step_result)
             else:
                 # All steps completed
                 result.status = "success"
@@ -564,17 +580,19 @@ class WorkflowExecutor:
         self._finalize_workflow(result, workflow, workflow_id, error)
         return result
 
-    async def _execute_step_async(
-        self, step: StepConfig, workflow_id: str = None
-    ) -> StepResult:
-        """Execute a single workflow step asynchronously."""
-        start_time = time.time()
-        result = StepResult(step_id=step.id, status=StepStatus.PENDING)
+    def _check_step_preconditions(
+        self, step: StepConfig, result: StepResult
+    ) -> tuple[StepHandler | None, CircuitBreaker | None, str | None]:
+        """Check step preconditions and return handler/circuit breaker.
 
+        Returns:
+            Tuple of (handler, circuit_breaker, error_message)
+            If error_message is set, the step should fail with that message.
+        """
         # Check condition
         if step.condition and not step.condition.evaluate(self._context):
             result.status = StepStatus.SKIPPED
-            return result
+            return None, None, None
 
         # Validate input contract if applicable
         role = step.params.get("role")
@@ -583,64 +601,72 @@ class WorkflowExecutor:
                 input_data = step.params.get("input", {})
                 self.contract_validator.validate_input(role, input_data, self._context)
             except Exception as e:
-                result.status = StepStatus.FAILED
-                result.error = f"Input validation failed: {e}"
-                return result
+                return None, None, f"Input validation failed: {e}"
 
-        # Execute with retries
         handler = self._handlers.get(step.type)
         if not handler:
-            result.status = StepStatus.FAILED
-            result.error = f"Unknown step type: {step.type}"
-            return result
+            return None, None, f"Unknown step type: {step.type}"
 
-        # Check circuit breaker if configured
         cb_key = step.circuit_breaker_key or step.type
         cb = _circuit_breakers.get(cb_key)
         if cb and cb.is_open:
-            result.status = StepStatus.FAILED
-            result.error = f"Circuit breaker open for {cb_key}"
             logger.warning(f"Step '{step.id}' skipped: circuit breaker open")
+            return None, None, f"Circuit breaker open for {cb_key}"
+
+        return handler, cb, None
+
+    def _invoke_handler(
+        self, handler: StepHandler, step: StepConfig, cb: CircuitBreaker | None
+    ) -> dict:
+        """Invoke step handler with optional circuit breaker."""
+        if cb:
+            return cb.call(handler, step, self._context)
+        return handler(step, self._context)
+
+    async def _invoke_handler_async(
+        self, handler: StepHandler, step: StepConfig, cb: CircuitBreaker | None
+    ) -> dict:
+        """Invoke step handler asynchronously with optional circuit breaker."""
+        loop = asyncio.get_event_loop()
+        if cb:
+            return await loop.run_in_executor(
+                None, cb.call, handler, step, self._context
+            )
+        return await loop.run_in_executor(None, handler, step, self._context)
+
+    async def _execute_step_async(
+        self, step: StepConfig, workflow_id: str = None
+    ) -> StepResult:
+        """Execute a single workflow step asynchronously."""
+        start_time = time.time()
+        result = StepResult(step_id=step.id, status=StepStatus.PENDING)
+
+        handler, cb, error = self._check_step_preconditions(step, result)
+        if result.status == StepStatus.SKIPPED:
+            return result
+        if error:
+            result.status = StepStatus.FAILED
+            result.error = error
             return result
 
+        role = step.params.get("role")
         last_error = None
+
         for attempt in range(step.max_retries + 1):
             result.retries = attempt
             result.status = StepStatus.RUNNING
 
             try:
-                # Create checkpoint before execution
                 if self.checkpoint_manager and workflow_id:
                     with self.checkpoint_manager.stage(
-                        step.id,
-                        input_data=step.params,
-                        workflow_id=workflow_id,
+                        step.id, input_data=step.params, workflow_id=workflow_id
                     ) as ctx:
-                        # Run handler in executor to avoid blocking event loop
-                        loop = asyncio.get_event_loop()
-                        if cb:
-                            output = await loop.run_in_executor(
-                                None, cb.call, handler, step, self._context
-                            )
-                        else:
-                            output = await loop.run_in_executor(
-                                None, handler, step, self._context
-                            )
+                        output = await self._invoke_handler_async(handler, step, cb)
                         ctx.output_data = output
                         ctx.tokens_used = output.get("tokens_used", 0)
                 else:
-                    # Run handler in executor to avoid blocking event loop
-                    loop = asyncio.get_event_loop()
-                    if cb:
-                        output = await loop.run_in_executor(
-                            None, cb.call, handler, step, self._context
-                        )
-                    else:
-                        output = await loop.run_in_executor(
-                            None, handler, step, self._context
-                        )
+                    output = await self._invoke_handler_async(handler, step, cb)
 
-                # Validate output contract if applicable
                 if self.contract_validator and role:
                     self.contract_validator.validate_output(role, output)
 
@@ -650,7 +676,6 @@ class WorkflowExecutor:
                 break
 
             except CircuitBreakerError as e:
-                # Circuit breaker opened during execution
                 result.status = StepStatus.FAILED
                 result.error = str(e)
                 break
@@ -658,7 +683,7 @@ class WorkflowExecutor:
             except Exception as e:
                 last_error = str(e)
                 if attempt < step.max_retries:
-                    await asyncio.sleep(min(2**attempt, 30))  # Exponential backoff
+                    await asyncio.sleep(min(2**attempt, 30))
                 else:
                     result.status = StepStatus.FAILED
                     result.error = last_error
@@ -728,66 +753,32 @@ class WorkflowExecutor:
         start_time = time.time()
         result = StepResult(step_id=step.id, status=StepStatus.PENDING)
 
-        # Check condition
-        if step.condition and not step.condition.evaluate(self._context):
-            result.status = StepStatus.SKIPPED
+        handler, cb, error = self._check_step_preconditions(step, result)
+        if result.status == StepStatus.SKIPPED:
+            return result
+        if error:
+            result.status = StepStatus.FAILED
+            result.error = error
             return result
 
-        # Validate input contract if applicable
         role = step.params.get("role")
-        if self.contract_validator and role:
-            try:
-                input_data = step.params.get("input", {})
-                self.contract_validator.validate_input(role, input_data, self._context)
-            except Exception as e:
-                result.status = StepStatus.FAILED
-                result.error = f"Input validation failed: {e}"
-                return result
-
-        # Execute with retries
-        handler = self._handlers.get(step.type)
-        if not handler:
-            result.status = StepStatus.FAILED
-            result.error = f"Unknown step type: {step.type}"
-            return result
-
-        # Check circuit breaker if configured
-        cb_key = step.circuit_breaker_key or step.type
-        cb = _circuit_breakers.get(cb_key)
-        if cb and cb.is_open:
-            result.status = StepStatus.FAILED
-            result.error = f"Circuit breaker open for {cb_key}"
-            logger.warning(f"Step '{step.id}' skipped: circuit breaker open")
-            return result
-
         last_error = None
+
         for attempt in range(step.max_retries + 1):
             result.retries = attempt
             result.status = StepStatus.RUNNING
 
             try:
-                # Create checkpoint before execution
                 if self.checkpoint_manager and workflow_id:
                     with self.checkpoint_manager.stage(
-                        step.id,
-                        input_data=step.params,
-                        workflow_id=workflow_id,
+                        step.id, input_data=step.params, workflow_id=workflow_id
                     ) as ctx:
-                        # Use circuit breaker if configured
-                        if cb:
-                            output = cb.call(handler, step, self._context)
-                        else:
-                            output = handler(step, self._context)
+                        output = self._invoke_handler(handler, step, cb)
                         ctx.output_data = output
                         ctx.tokens_used = output.get("tokens_used", 0)
                 else:
-                    # Use circuit breaker if configured
-                    if cb:
-                        output = cb.call(handler, step, self._context)
-                    else:
-                        output = handler(step, self._context)
+                    output = self._invoke_handler(handler, step, cb)
 
-                # Validate output contract if applicable
                 if self.contract_validator and role:
                     self.contract_validator.validate_output(role, output)
 
@@ -797,7 +788,6 @@ class WorkflowExecutor:
                 break
 
             except CircuitBreakerError as e:
-                # Circuit breaker opened during execution
                 result.status = StepStatus.FAILED
                 result.error = str(e)
                 break
@@ -805,7 +795,7 @@ class WorkflowExecutor:
             except Exception as e:
                 last_error = str(e)
                 if attempt < step.max_retries:
-                    time.sleep(min(2**attempt, 30))  # Exponential backoff
+                    time.sleep(min(2**attempt, 30))
                 else:
                     result.status = StepStatus.FAILED
                     result.error = last_error
@@ -1041,6 +1031,43 @@ class WorkflowExecutor:
 
         return output, tokens_used
 
+    def _execute_with_retries(
+        self,
+        sub_step: StepConfig,
+        stage_name: str,
+        context: dict,
+        context_updates: dict,
+    ) -> tuple[dict | None, int, str | None, int]:
+        """Execute a sub-step with retry logic.
+
+        Args:
+            sub_step: Step configuration
+            stage_name: Stage name for metrics
+            context: Execution context
+            context_updates: Dictionary to collect output updates
+
+        Returns:
+            Tuple of (output, tokens_used, error_msg, retries_used)
+        """
+        output, error_msg, tokens_used, retries_used = None, None, 0, 0
+
+        for attempt in range(sub_step.max_retries + 1):
+            try:
+                output, tokens_used = self._execute_sub_step_attempt(
+                    sub_step, stage_name, context, context_updates
+                )
+                output["retries"] = retries_used
+                return output, tokens_used, None, retries_used
+            except Exception as e:
+                error_msg = str(e)
+                retries_used = attempt + 1
+                if attempt < sub_step.max_retries:
+                    time.sleep(min(2**attempt, 30))
+                elif attempt == sub_step.max_retries:
+                    raise
+
+        return output, tokens_used, error_msg, retries_used
+
     def _execute_parallel(self, step: StepConfig, context: dict) -> dict:
         """Execute parallel sub-steps using ParallelExecutor.
 
@@ -1085,24 +1112,16 @@ class WorkflowExecutor:
                 nonlocal total_tokens
                 start_time = time.time()
                 stage_name = f"{parent_step_id}.{sub_step.id}"
-                output, error_msg, tokens_used, retries_used = None, None, 0, 0
+                output, tokens_used, error_msg, retries_used = None, 0, None, 0
 
                 try:
-                    for attempt in range(sub_step.max_retries + 1):
-                        try:
-                            output, tokens_used = self._execute_sub_step_attempt(
-                                sub_step, stage_name, context, context_updates
-                            )
-                            total_tokens += tokens_used
-                            output["retries"] = retries_used
-                            return output
-                        except Exception as e:
-                            error_msg = str(e)
-                            retries_used = attempt + 1
-                            if attempt < sub_step.max_retries:
-                                time.sleep(min(2**attempt, 30))
-                            elif attempt == sub_step.max_retries:
-                                raise
+                    output, tokens_used, error_msg, retries_used = (
+                        self._execute_with_retries(
+                            sub_step, stage_name, context, context_updates
+                        )
+                    )
+                    total_tokens += tokens_used
+                    return output
                 finally:
                     duration_ms = int((time.time() - start_time) * 1000)
                     self._record_sub_step_metrics(

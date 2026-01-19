@@ -184,70 +184,76 @@ class ProviderManager:
             if provider.is_configured()
         ]
 
+    def _get_providers_to_try(
+        self, provider_name: str | None, use_fallback: bool
+    ) -> list[str]:
+        """Determine ordered list of providers to try."""
+        if provider_name:
+            result = [provider_name]
+            if use_fallback:
+                result.extend(p for p in self._fallback_order if p != provider_name)
+            return result
+
+        if self._default_provider:
+            result = [self._default_provider]
+            if use_fallback:
+                result.extend(
+                    p for p in self._fallback_order if p != self._default_provider
+                )
+            return result
+
+        return self._fallback_order.copy()
+
+    def _try_provider_completion(
+        self, name: str, request: CompletionRequest, use_fallback: bool
+    ) -> tuple[CompletionResponse | None, Exception | None]:
+        """Try completion with a single provider.
+
+        Returns:
+            Tuple of (response, error) - response is set on success, error on failure
+        """
+        provider = self._providers.get(name)
+        if not provider:
+            return None, None
+
+        try:
+            logger.debug(f"Attempting completion with provider: {name}")
+            return provider.complete(request), None
+        except RateLimitError as e:
+            logger.warning(f"Rate limit hit for {name}: {e}")
+            if not use_fallback:
+                raise
+            return None, e
+        except ProviderError as e:
+            logger.warning(f"Provider {name} failed: {e}")
+            if not use_fallback:
+                raise
+            return None, e
+        except Exception as e:
+            logger.error(f"Unexpected error from {name}: {e}")
+            if not use_fallback:
+                raise ProviderError(f"Provider error: {e}")
+            return None, e
+
     def complete(
         self,
         request: CompletionRequest,
         provider_name: str | None = None,
         use_fallback: bool = True,
     ) -> CompletionResponse:
-        """Generate a completion using registered providers.
-
-        Args:
-            request: Completion request
-            provider_name: Specific provider to use (None = default)
-            use_fallback: Whether to try fallback providers on failure
-
-        Returns:
-            Completion response
-
-        Raises:
-            ProviderNotConfiguredError: If no providers configured
-            ProviderError: If all providers fail
-        """
+        """Generate a completion using registered providers."""
         if not self._providers:
             raise ProviderNotConfiguredError("No providers registered")
 
-        # Determine provider order
-        if provider_name:
-            providers_to_try = [provider_name]
-            if use_fallback:
-                providers_to_try.extend(
-                    [p for p in self._fallback_order if p != provider_name]
-                )
-        elif self._default_provider:
-            providers_to_try = [self._default_provider]
-            if use_fallback:
-                providers_to_try.extend(
-                    [p for p in self._fallback_order if p != self._default_provider]
-                )
-        else:
-            providers_to_try = self._fallback_order.copy()
-
+        providers_to_try = self._get_providers_to_try(provider_name, use_fallback)
         last_error: Exception | None = None
 
         for name in providers_to_try:
-            provider = self._providers.get(name)
-            if not provider:
-                continue
-
-            try:
-                logger.debug(f"Attempting completion with provider: {name}")
-                return provider.complete(request)
-            except RateLimitError as e:
-                logger.warning(f"Rate limit hit for {name}: {e}")
-                last_error = e
-                if not use_fallback:
-                    raise
-            except ProviderError as e:
-                logger.warning(f"Provider {name} failed: {e}")
-                last_error = e
-                if not use_fallback:
-                    raise
-            except Exception as e:
-                logger.error(f"Unexpected error from {name}: {e}")
-                last_error = e
-                if not use_fallback:
-                    raise ProviderError(f"Provider error: {e}")
+            response, error = self._try_provider_completion(name, request, use_fallback)
+            if response:
+                return response
+            if error:
+                last_error = error
 
         raise ProviderError(f"All providers failed. Last error: {last_error}")
 

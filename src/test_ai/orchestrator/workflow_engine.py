@@ -151,48 +151,67 @@ class WorkflowEngine:
         else:
             raise ValueError(f"Unknown GitHub action: {action}")
 
+    def _notion_query_database(self, params: Dict) -> Any:
+        """Execute Notion query_database action."""
+        return self.notion_client.query_database(
+            database_id=params.get("database_id", ""),
+            filter=params.get("filter"),
+            sorts=params.get("sorts"),
+            page_size=params.get("page_size", 100),
+        )
+
+    def _notion_create_database_entry(self, params: Dict) -> Any:
+        """Execute Notion create_database_entry action."""
+        return self.notion_client.create_database_entry(
+            database_id=params.get("database_id", ""),
+            properties=params.get("properties", {}),
+        )
+
+    def _notion_update_page(self, params: Dict) -> Any:
+        """Execute Notion update_page action."""
+        return self.notion_client.update_page(
+            page_id=params.get("page_id", ""),
+            properties=params.get("properties", {}),
+        )
+
+    def _notion_update_block(self, params: Dict) -> Any:
+        """Execute Notion update_block action."""
+        return self.notion_client.update_block(
+            block_id=params.get("block_id", ""),
+            content=params.get("content", ""),
+        )
+
     def _execute_notion_step(self, action: str, params: Dict) -> Any:
         """Execute a Notion step."""
-        if action == "create_page":
-            return self.notion_client.create_page(**params)
-        elif action == "append_to_page":
-            return self.notion_client.append_to_page(**params)
-        elif action == "search_pages":
-            return self.notion_client.search_pages(params.get("query", ""))
-        elif action == "query_database":
-            return self.notion_client.query_database(
-                database_id=params.get("database_id", ""),
-                filter=params.get("filter"),
-                sorts=params.get("sorts"),
-                page_size=params.get("page_size", 100),
-            )
-        elif action == "get_database_schema":
-            return self.notion_client.get_database_schema(params.get("database_id", ""))
-        elif action == "create_database_entry":
-            return self.notion_client.create_database_entry(
-                database_id=params.get("database_id", ""),
-                properties=params.get("properties", {}),
-            )
-        elif action == "get_page":
-            return self.notion_client.get_page(params.get("page_id", ""))
-        elif action == "read_page_content":
-            return self.notion_client.read_page_content(params.get("page_id", ""))
-        elif action == "update_page":
-            return self.notion_client.update_page(
-                page_id=params.get("page_id", ""),
-                properties=params.get("properties", {}),
-            )
-        elif action == "archive_page":
-            return self.notion_client.archive_page(params.get("page_id", ""))
-        elif action == "delete_block":
-            return self.notion_client.delete_block(params.get("block_id", ""))
-        elif action == "update_block":
-            return self.notion_client.update_block(
-                block_id=params.get("block_id", ""),
-                content=params.get("content", ""),
-            )
-        else:
-            raise ValueError(f"Unknown Notion action: {action}")
+        # Simple actions with direct passthrough
+        simple_actions = {
+            "create_page": lambda p: self.notion_client.create_page(**p),
+            "append_to_page": lambda p: self.notion_client.append_to_page(**p),
+            "search_pages": lambda p: self.notion_client.search_pages(p.get("query", "")),
+            "get_database_schema": lambda p: self.notion_client.get_database_schema(
+                p.get("database_id", "")
+            ),
+            "get_page": lambda p: self.notion_client.get_page(p.get("page_id", "")),
+            "read_page_content": lambda p: self.notion_client.read_page_content(
+                p.get("page_id", "")
+            ),
+            "archive_page": lambda p: self.notion_client.archive_page(p.get("page_id", "")),
+            "delete_block": lambda p: self.notion_client.delete_block(p.get("block_id", "")),
+        }
+
+        # Complex actions with multiple params
+        complex_actions = {
+            "query_database": self._notion_query_database,
+            "create_database_entry": self._notion_create_database_entry,
+            "update_page": self._notion_update_page,
+            "update_block": self._notion_update_block,
+        }
+
+        if action in simple_actions:
+            return simple_actions[action](params)
+        if action in complex_actions:
+            return complex_actions[action](params)
+        raise ValueError(f"Unknown Notion action: {action}")
 
     def _execute_gmail_step(self, action: str, params: Dict) -> Any:
         """Execute a Gmail step."""
