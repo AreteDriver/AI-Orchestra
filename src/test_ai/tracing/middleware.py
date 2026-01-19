@@ -17,7 +17,6 @@ from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from test_ai.tracing.context import (
-    TraceContext,
     start_trace,
     end_trace,
     get_current_trace,
@@ -26,7 +25,6 @@ from test_ai.tracing.context import (
 from test_ai.tracing.propagation import (
     extract_trace_context,
     TRACEPARENT_HEADER,
-    TRACESTATE_HEADER,
 )
 
 logger = logging.getLogger(__name__)
@@ -169,7 +167,7 @@ def trace_workflow_step(step_id: str, step_type: str, action: str):
         def wrapper(*args, **kwargs):
             trace = get_current_trace()
             if trace:
-                span = trace.start_span(
+                trace.start_span(
                     f"{step_type}:{action}",
                     attributes={
                         "step.id": step_id,
@@ -204,7 +202,7 @@ async def trace_async_workflow_step(step_id: str, step_type: str, action: str):
         async def wrapper(*args, **kwargs):
             trace = get_current_trace()
             if trace:
-                span = trace.start_span(
+                trace.start_span(
                     f"{step_type}:{action}",
                     attributes={
                         "step.id": step_id,

@@ -45,7 +45,6 @@ from test_ai.state import (
 from test_ai.utils.circuit_breaker import get_all_circuit_stats, reset_all_circuits
 from test_ai.errors import GorgonError
 from test_ai.api_errors import (
-    ErrorResponse,
     RateLimitErrorResponse,
     gorgon_exception_handler,
     APIException,
@@ -524,7 +523,7 @@ def update_schedule(
         if schedule_manager.update_schedule(schedule):
             return {"status": "success", "schedule_id": schedule.id}
         raise internal_error("Failed to update schedule")
-    except ValueError as e:
+    except ValueError:
         raise not_found("Schedule", schedule_id)
 
 
@@ -643,7 +642,7 @@ def update_webhook(
         if webhook_manager.update_webhook(webhook):
             return {"status": "success", "webhook_id": webhook.id}
         raise internal_error("Failed to update webhook")
-    except ValueError as e:
+    except ValueError:
         raise not_found("Webhook", webhook_id)
 
 
@@ -668,7 +667,7 @@ def regenerate_webhook_secret(
     try:
         new_secret = webhook_manager.regenerate_secret(webhook_id)
         return {"status": "success", "secret": new_secret}
-    except ValueError as e:
+    except ValueError:
         raise not_found("Webhook", webhook_id)
 
 
