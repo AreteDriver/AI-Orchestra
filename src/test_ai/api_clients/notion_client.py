@@ -1,20 +1,26 @@
-"""Notion API client wrapper."""
+"""Notion API client wrapper with sync and async support."""
 
 from typing import Optional, Dict, List, Any
 from test_ai.config import get_settings
-from test_ai.utils.retry import with_retry
+from test_ai.utils.retry import with_retry, async_with_retry
 from test_ai.errors import MaxRetriesError
 
 try:
     from notion_client import Client as NotionClient
+    from notion_client import AsyncClient as AsyncNotionClient
     from notion_client import APIResponseError
 except ImportError:
     NotionClient = None
+    AsyncNotionClient = None
     APIResponseError = Exception
 
 
 class NotionClientWrapper:
-    """Wrapper for Notion API."""
+    """Wrapper for Notion API with sync and async support.
+
+    Provides both synchronous and asynchronous methods for API calls.
+    Async methods are suffixed with '_async' (e.g., query_database_async).
+    """
 
     def __init__(self):
         settings = get_settings()
@@ -22,6 +28,16 @@ class NotionClientWrapper:
             self.client = NotionClient(auth=settings.notion_token)
         else:
             self.client = None
+        self._async_client: Optional["AsyncNotionClient"] = None
+
+    @property
+    def async_client(self) -> Optional["AsyncNotionClient"]:
+        """Lazy-load async client on first access."""
+        if self._async_client is None and AsyncNotionClient:
+            settings = get_settings()
+            if settings.notion_token:
+                self._async_client = AsyncNotionClient(auth=settings.notion_token)
+        return self._async_client
 
     def is_configured(self) -> bool:
         """Check if Notion client is configured."""
@@ -375,6 +391,184 @@ class NotionClientWrapper:
     def _search_pages_with_retry(self, query: str) -> List[Dict]:
         """Search pages with retry logic."""
         results = self.client.search(
+            query=query, filter={"property": "object", "value": "page"}
+        )
+        return [
+            {
+                "id": page["id"],
+                "title": page.get("properties", {})
+                .get("Name", {})
+                .get("title", [{}])[0]
+                .get("text", {})
+                .get("content", "Untitled"),
+                "url": page.get("url", ""),
+            }
+            for page in results.get("results", [])
+        ]
+
+    # -------------------------------------------------------------------------
+    # Async Database Operations
+    # -------------------------------------------------------------------------
+
+    def is_async_configured(self) -> bool:
+        """Check if async Notion client is configured."""
+        return self.async_client is not None
+
+    async def query_database_async(
+        self,
+        database_id: str,
+        filter: Optional[Dict] = None,
+        sorts: Optional[List[Dict]] = None,
+        page_size: int = 100,
+    ) -> List[Dict]:
+        """Query a Notion database with optional filter and sort (async)."""
+        if not self.is_async_configured():
+            return []
+
+        try:
+            return await self._query_database_with_retry_async(database_id, filter, sorts, page_size)
+        except (APIResponseError, MaxRetriesError) as e:
+            return [{"error": str(e)}]
+
+    @async_with_retry(max_retries=3, base_delay=1.0, max_delay=30.0)
+    async def _query_database_with_retry_async(
+        self,
+        database_id: str,
+        filter: Optional[Dict],
+        sorts: Optional[List[Dict]],
+        page_size: int,
+    ) -> List[Dict]:
+        """Query database with retry logic (async)."""
+        query_params: Dict[str, Any] = {"database_id": database_id, "page_size": page_size}
+        if filter:
+            query_params["filter"] = filter
+        if sorts:
+            query_params["sorts"] = sorts
+
+        results = await self.async_client.databases.query(**query_params)
+        return [self._parse_page_properties(page) for page in results.get("results", [])]
+
+    async def get_database_schema_async(self, database_id: str) -> Optional[Dict]:
+        """Get database schema (properties and their types) (async)."""
+        if not self.is_async_configured():
+            return None
+
+        try:
+            return await self._get_database_schema_with_retry_async(database_id)
+        except (APIResponseError, MaxRetriesError) as e:
+            return {"error": str(e)}
+
+    @async_with_retry(max_retries=3, base_delay=1.0, max_delay=30.0)
+    async def _get_database_schema_with_retry_async(self, database_id: str) -> Dict:
+        """Get database schema with retry logic (async)."""
+        db = await self.async_client.databases.retrieve(database_id=database_id)
+        return {
+            "id": db["id"],
+            "title": self._extract_title(db.get("title", [])),
+            "properties": {
+                name: {"type": prop["type"], "id": prop["id"]}
+                for name, prop in db.get("properties", {}).items()
+            },
+        }
+
+    # -------------------------------------------------------------------------
+    # Async Page Operations
+    # -------------------------------------------------------------------------
+
+    async def get_page_async(self, page_id: str) -> Optional[Dict]:
+        """Get page metadata and properties (async)."""
+        if not self.is_async_configured():
+            return None
+
+        try:
+            return await self._get_page_with_retry_async(page_id)
+        except (APIResponseError, MaxRetriesError) as e:
+            return {"error": str(e)}
+
+    @async_with_retry(max_retries=3, base_delay=1.0, max_delay=30.0)
+    async def _get_page_with_retry_async(self, page_id: str) -> Dict:
+        """Get page with retry logic (async)."""
+        page = await self.async_client.pages.retrieve(page_id=page_id)
+        return self._parse_page_properties(page)
+
+    async def read_page_content_async(self, page_id: str) -> List[Dict]:
+        """Read all blocks from a page (async)."""
+        if not self.is_async_configured():
+            return []
+
+        try:
+            return await self._read_page_content_with_retry_async(page_id)
+        except (APIResponseError, MaxRetriesError) as e:
+            return [{"error": str(e)}]
+
+    @async_with_retry(max_retries=3, base_delay=1.0, max_delay=30.0)
+    async def _read_page_content_with_retry_async(self, page_id: str) -> List[Dict]:
+        """Read page content with retry logic (async)."""
+        blocks = await self.async_client.blocks.children.list(block_id=page_id)
+        return [self._parse_block(block) for block in blocks.get("results", [])]
+
+    async def create_page_async(self, parent_id: str, title: str, content: str) -> Optional[Dict]:
+        """Create a page in Notion (async)."""
+        if not self.is_async_configured():
+            return None
+
+        try:
+            return await self._create_page_with_retry_async(parent_id, title, content)
+        except (APIResponseError, MaxRetriesError) as e:
+            return {"error": str(e)}
+
+    @async_with_retry(max_retries=3, base_delay=1.0, max_delay=30.0)
+    async def _create_page_with_retry_async(self, parent_id: str, title: str, content: str) -> Dict:
+        """Create page with retry logic (async)."""
+        page = await self.async_client.pages.create(
+            parent={"database_id": parent_id},
+            properties={"Name": {"title": [{"text": {"content": title}}]}},
+            children=[
+                {
+                    "object": "block",
+                    "type": "paragraph",
+                    "paragraph": {
+                        "rich_text": [{"type": "text", "text": {"content": content}}]
+                    },
+                }
+            ],
+        )
+        return {"id": page["id"], "url": page["url"]}
+
+    async def update_page_async(self, page_id: str, properties: Dict[str, Any]) -> Optional[Dict]:
+        """Update page properties (async)."""
+        if not self.is_async_configured():
+            return None
+
+        try:
+            return await self._update_page_with_retry_async(page_id, properties)
+        except (APIResponseError, MaxRetriesError) as e:
+            return {"error": str(e)}
+
+    @async_with_retry(max_retries=3, base_delay=1.0, max_delay=30.0)
+    async def _update_page_with_retry_async(self, page_id: str, properties: Dict[str, Any]) -> Dict:
+        """Update page with retry logic (async)."""
+        page = await self.async_client.pages.update(page_id=page_id, properties=properties)
+        return {"id": page["id"], "url": page["url"]}
+
+    # -------------------------------------------------------------------------
+    # Async Search
+    # -------------------------------------------------------------------------
+
+    async def search_pages_async(self, query: str) -> List[Dict]:
+        """Search for pages in Notion (async)."""
+        if not self.is_async_configured():
+            return []
+
+        try:
+            return await self._search_pages_with_retry_async(query)
+        except (APIResponseError, MaxRetriesError):
+            return []
+
+    @async_with_retry(max_retries=3, base_delay=1.0, max_delay=30.0)
+    async def _search_pages_with_retry_async(self, query: str) -> List[Dict]:
+        """Search pages with retry logic (async)."""
+        results = await self.async_client.search(
             query=query, filter={"property": "object", "value": "page"}
         )
         return [
