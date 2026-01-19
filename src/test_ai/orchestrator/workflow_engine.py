@@ -159,6 +159,38 @@ class WorkflowEngine:
             return self.notion_client.append_to_page(**params)
         elif action == "search_pages":
             return self.notion_client.search_pages(params.get("query", ""))
+        elif action == "query_database":
+            return self.notion_client.query_database(
+                database_id=params.get("database_id", ""),
+                filter=params.get("filter"),
+                sorts=params.get("sorts"),
+                page_size=params.get("page_size", 100),
+            )
+        elif action == "get_database_schema":
+            return self.notion_client.get_database_schema(params.get("database_id", ""))
+        elif action == "create_database_entry":
+            return self.notion_client.create_database_entry(
+                database_id=params.get("database_id", ""),
+                properties=params.get("properties", {}),
+            )
+        elif action == "get_page":
+            return self.notion_client.get_page(params.get("page_id", ""))
+        elif action == "read_page_content":
+            return self.notion_client.read_page_content(params.get("page_id", ""))
+        elif action == "update_page":
+            return self.notion_client.update_page(
+                page_id=params.get("page_id", ""),
+                properties=params.get("properties", {}),
+            )
+        elif action == "archive_page":
+            return self.notion_client.archive_page(params.get("page_id", ""))
+        elif action == "delete_block":
+            return self.notion_client.delete_block(params.get("block_id", ""))
+        elif action == "update_block":
+            return self.notion_client.update_block(
+                block_id=params.get("block_id", ""),
+                content=params.get("content", ""),
+            )
         else:
             raise ValueError(f"Unknown Notion action: {action}")
 

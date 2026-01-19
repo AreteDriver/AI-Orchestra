@@ -43,6 +43,22 @@ from test_ai.state import (
     PostgresBackend,
 )
 from test_ai.utils.circuit_breaker import get_all_circuit_stats, reset_all_circuits
+from test_ai.errors import GorgonError
+from test_ai.api_errors import (
+    ErrorResponse,
+    RateLimitErrorResponse,
+    gorgon_exception_handler,
+    APIException,
+    api_exception_handler,
+    responses,
+    AUTH_RESPONSES,
+    CRUD_RESPONSES,
+    WORKFLOW_RESPONSES,
+    not_found,
+    unauthorized,
+    bad_request,
+    internal_error,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -258,15 +274,27 @@ app.state.limiter = limiter
 
 @app.exception_handler(RateLimitExceeded)
 async def rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
-    """Handle rate limit exceeded errors."""
+    """Handle rate limit exceeded errors with structured response."""
+    request_id = request.headers.get("X-Request-ID")
+    response = RateLimitErrorResponse(
+        error={
+            "error_code": "RATE_LIMITED",
+            "message": "Rate limit exceeded",
+            "details": {"limit": str(exc.detail)},
+            "request_id": request_id,
+        },
+        retry_after=int(exc.detail) if str(exc.detail).isdigit() else 60,
+    )
     return JSONResponse(
         status_code=429,
-        content={
-            "detail": "Rate limit exceeded",
-            "retry_after": exc.detail,
-        },
+        content=response.model_dump(),
         headers={"Retry-After": str(exc.detail)},
     )
+
+
+# Register exception handlers for structured error responses
+app.add_exception_handler(GorgonError, gorgon_exception_handler)
+app.add_exception_handler(APIException, api_exception_handler)
 
 
 # Initialize components
@@ -302,13 +330,13 @@ class WorkflowExecuteRequest(BaseModel):
 def verify_auth(authorization: Optional[str] = Header(None)) -> str:
     """Verify authentication token."""
     if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Not authenticated")
+        raise unauthorized("Authentication required. Provide Bearer token in Authorization header.")
 
     token = authorization.split(" ")[1]
     user_id = verify_token(token)
 
     if not user_id:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
+        raise unauthorized("Invalid or expired token")
 
     return user_id
 
@@ -319,7 +347,11 @@ def root():
     return {"app": "AI Workflow Orchestrator", "version": "0.1.0", "status": "running"}
 
 
-@v1_router.post("/auth/login", response_model=LoginResponse)
+@v1_router.post(
+    "/auth/login",
+    response_model=LoginResponse,
+    responses=responses(401, 429),
+)
 @limiter.limit("5/minute")
 def login(request: Request, login_request: LoginRequest):
     """Login endpoint. Rate limited to 5 requests/minute per IP.
@@ -344,29 +376,29 @@ def login(request: Request, login_request: LoginRequest):
         login_request.user_id,
         get_remote_address(request),
     )
-    raise HTTPException(status_code=401, detail="Invalid credentials")
+    raise unauthorized("Invalid credentials")
 
 
-@v1_router.get("/workflows")
+@v1_router.get("/workflows", responses=AUTH_RESPONSES)
 def list_workflows(authorization: Optional[str] = Header(None)):
     """List all workflows."""
     verify_auth(authorization)
     return workflow_engine.list_workflows()
 
 
-@v1_router.get("/workflows/{workflow_id}")
+@v1_router.get("/workflows/{workflow_id}", responses=CRUD_RESPONSES)
 def get_workflow(workflow_id: str, authorization: Optional[str] = Header(None)):
     """Get a specific workflow."""
     verify_auth(authorization)
     workflow = workflow_engine.load_workflow(workflow_id)
 
     if not workflow:
-        raise HTTPException(status_code=404, detail="Workflow not found")
+        raise not_found("Workflow", workflow_id)
 
     return workflow
 
 
-@v1_router.post("/workflows")
+@v1_router.post("/workflows", responses=CRUD_RESPONSES)
 def create_workflow(workflow: Workflow, authorization: Optional[str] = Header(None)):
     """Create a new workflow."""
     verify_auth(authorization)
@@ -374,10 +406,10 @@ def create_workflow(workflow: Workflow, authorization: Optional[str] = Header(No
     if workflow_engine.save_workflow(workflow):
         return {"status": "success", "workflow_id": workflow.id}
 
-    raise HTTPException(status_code=500, detail="Failed to save workflow")
+    raise internal_error("Failed to save workflow")
 
 
-@v1_router.post("/workflows/execute")
+@v1_router.post("/workflows/execute", responses=WORKFLOW_RESPONSES)
 @limiter.limit("10/minute")
 def execute_workflow(
     request_obj: Request,
@@ -389,7 +421,7 @@ def execute_workflow(
 
     workflow = workflow_engine.load_workflow(request.workflow_id)
     if not workflow:
-        raise HTTPException(status_code=404, detail="Workflow not found")
+        raise not_found("Workflow", request.workflow_id)
 
     if request.variables:
         workflow.variables.update(request.variables)
@@ -398,26 +430,26 @@ def execute_workflow(
     return result
 
 
-@v1_router.get("/prompts")
+@v1_router.get("/prompts", responses=AUTH_RESPONSES)
 def list_prompts(authorization: Optional[str] = Header(None)):
     """List all prompt templates."""
     verify_auth(authorization)
     return prompt_manager.list_templates()
 
 
-@v1_router.get("/prompts/{template_id}")
+@v1_router.get("/prompts/{template_id}", responses=CRUD_RESPONSES)
 def get_prompt(template_id: str, authorization: Optional[str] = Header(None)):
     """Get a specific prompt template."""
     verify_auth(authorization)
     template = prompt_manager.load_template(template_id)
 
     if not template:
-        raise HTTPException(status_code=404, detail="Template not found")
+        raise not_found("Template", template_id)
 
     return template
 
 
-@v1_router.post("/prompts")
+@v1_router.post("/prompts", responses=CRUD_RESPONSES)
 def create_prompt(
     template: PromptTemplate, authorization: Optional[str] = Header(None)
 ):
@@ -427,10 +459,10 @@ def create_prompt(
     if prompt_manager.save_template(template):
         return {"status": "success", "template_id": template.id}
 
-    raise HTTPException(status_code=500, detail="Failed to save template")
+    raise internal_error("Failed to save template")
 
 
-@v1_router.delete("/prompts/{template_id}")
+@v1_router.delete("/prompts/{template_id}", responses=CRUD_RESPONSES)
 def delete_prompt(template_id: str, authorization: Optional[str] = Header(None)):
     """Delete a prompt template."""
     verify_auth(authorization)
@@ -438,30 +470,30 @@ def delete_prompt(template_id: str, authorization: Optional[str] = Header(None))
     if prompt_manager.delete_template(template_id):
         return {"status": "success"}
 
-    raise HTTPException(status_code=404, detail="Template not found")
+    raise not_found("Template", template_id)
 
 
 # Schedule endpoints
-@v1_router.get("/schedules")
+@v1_router.get("/schedules", responses=AUTH_RESPONSES)
 def list_schedules(authorization: Optional[str] = Header(None)):
     """List all schedules."""
     verify_auth(authorization)
     return schedule_manager.list_schedules()
 
 
-@v1_router.get("/schedules/{schedule_id}")
+@v1_router.get("/schedules/{schedule_id}", responses=CRUD_RESPONSES)
 def get_schedule(schedule_id: str, authorization: Optional[str] = Header(None)):
     """Get a specific schedule."""
     verify_auth(authorization)
     schedule = schedule_manager.get_schedule(schedule_id)
 
     if not schedule:
-        raise HTTPException(status_code=404, detail="Schedule not found")
+        raise not_found("Schedule", schedule_id)
 
     return schedule
 
 
-@v1_router.post("/schedules")
+@v1_router.post("/schedules", responses=CRUD_RESPONSES)
 def create_schedule(
     schedule: WorkflowSchedule, authorization: Optional[str] = Header(None)
 ):
@@ -471,12 +503,12 @@ def create_schedule(
     try:
         if schedule_manager.create_schedule(schedule):
             return {"status": "success", "schedule_id": schedule.id}
-        raise HTTPException(status_code=500, detail="Failed to save schedule")
+        raise internal_error("Failed to save schedule")
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise bad_request(str(e))
 
 
-@v1_router.put("/schedules/{schedule_id}")
+@v1_router.put("/schedules/{schedule_id}", responses=CRUD_RESPONSES)
 def update_schedule(
     schedule_id: str,
     schedule: WorkflowSchedule,
@@ -486,17 +518,17 @@ def update_schedule(
     verify_auth(authorization)
 
     if schedule.id != schedule_id:
-        raise HTTPException(status_code=400, detail="Schedule ID mismatch")
+        raise bad_request("Schedule ID mismatch", {"expected": schedule_id, "got": schedule.id})
 
     try:
         if schedule_manager.update_schedule(schedule):
             return {"status": "success", "schedule_id": schedule.id}
-        raise HTTPException(status_code=500, detail="Failed to update schedule")
+        raise internal_error("Failed to update schedule")
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise not_found("Schedule", schedule_id)
 
 
-@v1_router.delete("/schedules/{schedule_id}")
+@v1_router.delete("/schedules/{schedule_id}", responses=CRUD_RESPONSES)
 def delete_schedule(schedule_id: str, authorization: Optional[str] = Header(None)):
     """Delete a schedule."""
     verify_auth(authorization)
@@ -504,10 +536,10 @@ def delete_schedule(schedule_id: str, authorization: Optional[str] = Header(None
     if schedule_manager.delete_schedule(schedule_id):
         return {"status": "success"}
 
-    raise HTTPException(status_code=404, detail="Schedule not found")
+    raise not_found("Schedule", schedule_id)
 
 
-@v1_router.post("/schedules/{schedule_id}/pause")
+@v1_router.post("/schedules/{schedule_id}/pause", responses=CRUD_RESPONSES)
 def pause_schedule(schedule_id: str, authorization: Optional[str] = Header(None)):
     """Pause a schedule."""
     verify_auth(authorization)
@@ -515,10 +547,10 @@ def pause_schedule(schedule_id: str, authorization: Optional[str] = Header(None)
     if schedule_manager.pause_schedule(schedule_id):
         return {"status": "success", "message": "Schedule paused"}
 
-    raise HTTPException(status_code=404, detail="Schedule not found")
+    raise not_found("Schedule", schedule_id)
 
 
-@v1_router.post("/schedules/{schedule_id}/resume")
+@v1_router.post("/schedules/{schedule_id}/resume", responses=CRUD_RESPONSES)
 def resume_schedule(schedule_id: str, authorization: Optional[str] = Header(None)):
     """Resume a paused schedule."""
     verify_auth(authorization)
@@ -526,10 +558,10 @@ def resume_schedule(schedule_id: str, authorization: Optional[str] = Header(None
     if schedule_manager.resume_schedule(schedule_id):
         return {"status": "success", "message": "Schedule resumed"}
 
-    raise HTTPException(status_code=404, detail="Schedule not found")
+    raise not_found("Schedule", schedule_id)
 
 
-@v1_router.post("/schedules/{schedule_id}/trigger")
+@v1_router.post("/schedules/{schedule_id}/trigger", responses=CRUD_RESPONSES)
 def trigger_schedule(schedule_id: str, authorization: Optional[str] = Header(None)):
     """Manually trigger a scheduled workflow immediately."""
     verify_auth(authorization)
@@ -537,10 +569,10 @@ def trigger_schedule(schedule_id: str, authorization: Optional[str] = Header(Non
     if schedule_manager.trigger_now(schedule_id):
         return {"status": "success", "message": "Workflow triggered"}
 
-    raise HTTPException(status_code=404, detail="Schedule not found")
+    raise not_found("Schedule", schedule_id)
 
 
-@v1_router.get("/schedules/{schedule_id}/history")
+@v1_router.get("/schedules/{schedule_id}/history", responses=CRUD_RESPONSES)
 def get_schedule_history(
     schedule_id: str,
     limit: int = 10,
@@ -551,33 +583,33 @@ def get_schedule_history(
 
     schedule = schedule_manager.get_schedule(schedule_id)
     if not schedule:
-        raise HTTPException(status_code=404, detail="Schedule not found")
+        raise not_found("Schedule", schedule_id)
 
     history = schedule_manager.get_execution_history(schedule_id, limit)
     return [h.model_dump(mode="json") for h in history]
 
 
 # Webhook endpoints (authenticated management)
-@v1_router.get("/webhooks")
+@v1_router.get("/webhooks", responses=AUTH_RESPONSES)
 def list_webhooks(authorization: Optional[str] = Header(None)):
     """List all webhooks."""
     verify_auth(authorization)
     return webhook_manager.list_webhooks()
 
 
-@v1_router.get("/webhooks/{webhook_id}")
+@v1_router.get("/webhooks/{webhook_id}", responses=CRUD_RESPONSES)
 def get_webhook(webhook_id: str, authorization: Optional[str] = Header(None)):
     """Get a specific webhook (includes secret)."""
     verify_auth(authorization)
     webhook = webhook_manager.get_webhook(webhook_id)
 
     if not webhook:
-        raise HTTPException(status_code=404, detail="Webhook not found")
+        raise not_found("Webhook", webhook_id)
 
     return webhook
 
 
-@v1_router.post("/webhooks")
+@v1_router.post("/webhooks", responses=CRUD_RESPONSES)
 def create_webhook(webhook: Webhook, authorization: Optional[str] = Header(None)):
     """Create a new webhook."""
     verify_auth(authorization)
@@ -590,12 +622,12 @@ def create_webhook(webhook: Webhook, authorization: Optional[str] = Header(None)
                 "secret": webhook.secret,
                 "trigger_url": f"/hooks/{webhook.id}",
             }
-        raise HTTPException(status_code=500, detail="Failed to save webhook")
+        raise internal_error("Failed to save webhook")
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise bad_request(str(e))
 
 
-@v1_router.put("/webhooks/{webhook_id}")
+@v1_router.put("/webhooks/{webhook_id}", responses=CRUD_RESPONSES)
 def update_webhook(
     webhook_id: str,
     webhook: Webhook,
@@ -605,17 +637,17 @@ def update_webhook(
     verify_auth(authorization)
 
     if webhook.id != webhook_id:
-        raise HTTPException(status_code=400, detail="Webhook ID mismatch")
+        raise bad_request("Webhook ID mismatch", {"expected": webhook_id, "got": webhook.id})
 
     try:
         if webhook_manager.update_webhook(webhook):
             return {"status": "success", "webhook_id": webhook.id}
-        raise HTTPException(status_code=500, detail="Failed to update webhook")
+        raise internal_error("Failed to update webhook")
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise not_found("Webhook", webhook_id)
 
 
-@v1_router.delete("/webhooks/{webhook_id}")
+@v1_router.delete("/webhooks/{webhook_id}", responses=CRUD_RESPONSES)
 def delete_webhook(webhook_id: str, authorization: Optional[str] = Header(None)):
     """Delete a webhook."""
     verify_auth(authorization)
@@ -623,10 +655,10 @@ def delete_webhook(webhook_id: str, authorization: Optional[str] = Header(None))
     if webhook_manager.delete_webhook(webhook_id):
         return {"status": "success"}
 
-    raise HTTPException(status_code=404, detail="Webhook not found")
+    raise not_found("Webhook", webhook_id)
 
 
-@v1_router.post("/webhooks/{webhook_id}/regenerate-secret")
+@v1_router.post("/webhooks/{webhook_id}/regenerate-secret", responses=CRUD_RESPONSES)
 def regenerate_webhook_secret(
     webhook_id: str, authorization: Optional[str] = Header(None)
 ):
@@ -637,10 +669,10 @@ def regenerate_webhook_secret(
         new_secret = webhook_manager.regenerate_secret(webhook_id)
         return {"status": "success", "secret": new_secret}
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise not_found("Webhook", webhook_id)
 
 
-@v1_router.get("/webhooks/{webhook_id}/history")
+@v1_router.get("/webhooks/{webhook_id}/history", responses=CRUD_RESPONSES)
 def get_webhook_history(
     webhook_id: str,
     limit: int = 10,
@@ -651,14 +683,14 @@ def get_webhook_history(
 
     webhook = webhook_manager.get_webhook(webhook_id)
     if not webhook:
-        raise HTTPException(status_code=404, detail="Webhook not found")
+        raise not_found("Webhook", webhook_id)
 
     history = webhook_manager.get_trigger_history(webhook_id, limit)
     return [h.model_dump(mode="json") for h in history]
 
 
 # Public webhook trigger endpoint (uses signature verification, not JWT)
-@app.post("/hooks/{webhook_id}")
+@app.post("/hooks/{webhook_id}", responses=responses(400, 401, 404, 429))
 @limiter.limit("30/minute")
 async def trigger_webhook(
     webhook_id: str,
@@ -674,7 +706,7 @@ async def trigger_webhook(
     """
     webhook = webhook_manager.get_webhook(webhook_id)
     if not webhook:
-        raise HTTPException(status_code=404, detail="Webhook not found")
+        raise not_found("Webhook", webhook_id)
 
     # Get raw body for signature verification
     body = await request.body()
@@ -682,7 +714,7 @@ async def trigger_webhook(
     # Verify signature if provided (recommended but optional for testing)
     if x_webhook_signature:
         if not webhook_manager.verify_signature(webhook_id, body, x_webhook_signature):
-            raise HTTPException(status_code=401, detail="Invalid signature")
+            raise unauthorized("Invalid webhook signature")
 
     # Parse payload
     try:
@@ -698,11 +730,11 @@ async def trigger_webhook(
         result = webhook_manager.trigger(webhook_id, payload, source_ip=client_ip)
         return result
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise bad_request(str(e))
 
 
 # Job endpoints (async workflow execution)
-@v1_router.post("/jobs")
+@v1_router.post("/jobs", responses=CRUD_RESPONSES)
 @limiter.limit("20/minute")
 def submit_job(
     request_obj: Request,
@@ -721,10 +753,10 @@ def submit_job(
             "poll_url": f"/jobs/{job.id}",
         }
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise bad_request(str(e))
 
 
-@v1_router.get("/jobs")
+@v1_router.get("/jobs", responses=AUTH_RESPONSES)
 def list_jobs(
     status: Optional[str] = None,
     workflow_id: Optional[str] = None,
@@ -739,7 +771,7 @@ def list_jobs(
         try:
             status_filter = JobStatus(status)
         except ValueError:
-            raise HTTPException(status_code=400, detail=f"Invalid status: {status}")
+            raise bad_request(f"Invalid status: {status}", {"valid_statuses": [s.value for s in JobStatus]})
 
     jobs = job_manager.list_jobs(
         status=status_filter, workflow_id=workflow_id, limit=limit
@@ -747,26 +779,26 @@ def list_jobs(
     return [j.model_dump(mode="json") for j in jobs]
 
 
-@v1_router.get("/jobs/stats")
+@v1_router.get("/jobs/stats", responses=AUTH_RESPONSES)
 def get_job_stats(authorization: Optional[str] = Header(None)):
     """Get job statistics."""
     verify_auth(authorization)
     return job_manager.get_stats()
 
 
-@v1_router.get("/jobs/{job_id}")
+@v1_router.get("/jobs/{job_id}", responses=CRUD_RESPONSES)
 def get_job(job_id: str, authorization: Optional[str] = Header(None)):
     """Get job status and result."""
     verify_auth(authorization)
 
     job = job_manager.get_job(job_id)
     if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+        raise not_found("Job", job_id)
 
     return job.model_dump(mode="json")
 
 
-@v1_router.post("/jobs/{job_id}/cancel")
+@v1_router.post("/jobs/{job_id}/cancel", responses=CRUD_RESPONSES)
 def cancel_job(job_id: str, authorization: Optional[str] = Header(None)):
     """Cancel a pending or running job."""
     verify_auth(authorization)
@@ -776,14 +808,15 @@ def cancel_job(job_id: str, authorization: Optional[str] = Header(None)):
 
     job = job_manager.get_job(job_id)
     if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+        raise not_found("Job", job_id)
 
-    raise HTTPException(
-        status_code=400, detail=f"Cannot cancel job in {job.status.value} status"
+    raise bad_request(
+        f"Cannot cancel job in {job.status.value} status",
+        {"job_id": job_id, "current_status": job.status.value},
     )
 
 
-@v1_router.delete("/jobs/{job_id}")
+@v1_router.delete("/jobs/{job_id}", responses=CRUD_RESPONSES)
 def delete_job(job_id: str, authorization: Optional[str] = Header(None)):
     """Delete a completed/failed/cancelled job."""
     verify_auth(authorization)
@@ -793,9 +826,9 @@ def delete_job(job_id: str, authorization: Optional[str] = Header(None)):
 
     job = job_manager.get_job(job_id)
     if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+        raise not_found("Job", job_id)
 
-    raise HTTPException(status_code=400, detail="Cannot delete running job")
+    raise bad_request("Cannot delete running job", {"job_id": job_id, "status": job.status.value})
 
 
 @v1_router.post("/jobs/cleanup")
