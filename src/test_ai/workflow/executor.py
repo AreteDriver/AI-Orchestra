@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import subprocess
 import time
@@ -354,6 +355,304 @@ class WorkflowExecutor:
         self._current_workflow_id = None
 
         return result
+
+    async def execute_async(
+        self,
+        workflow: WorkflowConfig,
+        inputs: dict = None,
+        resume_from: str = None,
+    ) -> ExecutionResult:
+        """Execute a workflow asynchronously.
+
+        This is the async version of execute() for non-blocking execution.
+
+        Args:
+            workflow: WorkflowConfig to execute
+            inputs: Input values for the workflow
+            resume_from: Optional step ID to resume from
+
+        Returns:
+            ExecutionResult with status and outputs
+        """
+        result = ExecutionResult(workflow_name=workflow.name)
+        self._context = inputs.copy() if inputs else {}
+
+        # Validate required inputs
+        for input_name, input_spec in workflow.inputs.items():
+            if input_spec.get("required", False) and input_name not in self._context:
+                if "default" in input_spec:
+                    self._context[input_name] = input_spec["default"]
+                else:
+                    result.status = "failed"
+                    result.error = f"Missing required input: {input_name}"
+                    return result
+
+        # Start workflow in checkpoint manager
+        workflow_id = None
+        if self.checkpoint_manager:
+            workflow_id = self.checkpoint_manager.start_workflow(
+                workflow.name,
+                config={"inputs": self._context},
+            )
+        self._current_workflow_id = workflow_id
+
+        # Find resume point
+        start_index = 0
+        if resume_from:
+            for i, step in enumerate(workflow.steps):
+                if step.id == resume_from:
+                    start_index = i
+                    break
+
+        # Execute steps
+        try:
+            for i, step in enumerate(workflow.steps[start_index:], start=start_index):
+                # Check budget before execution
+                if self.budget_manager:
+                    if not self.budget_manager.can_allocate(
+                        step.params.get("estimated_tokens", 1000)
+                    ):
+                        result.status = "failed"
+                        result.error = "Token budget exceeded"
+                        break
+
+                step_result = await self._execute_step_async(step, workflow_id)
+                result.steps.append(step_result)
+                result.total_tokens += step_result.tokens_used
+                result.total_duration_ms += step_result.duration_ms
+
+                # Record tokens in budget manager
+                if self.budget_manager and step_result.tokens_used > 0:
+                    self.budget_manager.record_usage(step.id, step_result.tokens_used)
+
+                # Handle step failure
+                if step_result.status == StepStatus.FAILED:
+                    # Notify error callback
+                    if self.error_callback:
+                        try:
+                            self.error_callback(
+                                step.id,
+                                workflow_id or "",
+                                Exception(step_result.error or "Unknown error"),
+                            )
+                        except Exception as cb_err:
+                            logger.warning(f"Error callback failed: {cb_err}")
+
+                    if step.on_failure == "abort":
+                        result.status = "failed"
+                        result.error = f"Step '{step.id}' failed: {step_result.error}"
+                        break
+                    elif step.on_failure == "skip":
+                        continue
+                    elif step.on_failure == "continue_with_default":
+                        # Use default output values
+                        step_result.status = StepStatus.SUCCESS
+                        step_result.output = step.default_output.copy()
+                        logger.info(f"Step '{step.id}' failed, using default output")
+                    elif step.on_failure == "fallback" and step.fallback:
+                        # Execute fallback strategy
+                        fallback_output = await self._execute_fallback_async(
+                            step, step_result.error, workflow_id
+                        )
+                        if fallback_output is not None:
+                            step_result.status = StepStatus.SUCCESS
+                            step_result.output = fallback_output
+                            logger.info(f"Step '{step.id}' recovered via fallback")
+                        else:
+                            result.status = "failed"
+                            result.error = f"Step '{step.id}' failed and fallback failed"
+                            break
+
+                # Store outputs in context
+                for output_key in step.outputs:
+                    if output_key in step_result.output:
+                        self._context[output_key] = step_result.output[output_key]
+
+            else:
+                # All steps completed
+                result.status = "success"
+
+        except Exception as e:
+            result.status = "failed"
+            result.error = str(e)
+            if self.checkpoint_manager and workflow_id:
+                self.checkpoint_manager.fail_workflow(str(e), workflow_id)
+        else:
+            if self.checkpoint_manager and workflow_id:
+                if result.status == "success":
+                    self.checkpoint_manager.complete_workflow(workflow_id)
+                else:
+                    self.checkpoint_manager.fail_workflow(
+                        result.error or "Unknown error", workflow_id
+                    )
+
+        # Collect workflow outputs
+        for output_name in workflow.outputs:
+            if output_name in self._context:
+                result.outputs[output_name] = self._context[output_name]
+
+        result.completed_at = datetime.now(timezone.utc)
+        result.total_duration_ms = int(
+            (result.completed_at - result.started_at).total_seconds() * 1000
+        )
+
+        # Clear workflow ID
+        self._current_workflow_id = None
+
+        return result
+
+    async def _execute_step_async(
+        self, step: StepConfig, workflow_id: str = None
+    ) -> StepResult:
+        """Execute a single workflow step asynchronously."""
+        start_time = time.time()
+        result = StepResult(step_id=step.id, status=StepStatus.PENDING)
+
+        # Check condition
+        if step.condition and not step.condition.evaluate(self._context):
+            result.status = StepStatus.SKIPPED
+            return result
+
+        # Validate input contract if applicable
+        role = step.params.get("role")
+        if self.contract_validator and role:
+            try:
+                input_data = step.params.get("input", {})
+                self.contract_validator.validate_input(role, input_data, self._context)
+            except Exception as e:
+                result.status = StepStatus.FAILED
+                result.error = f"Input validation failed: {e}"
+                return result
+
+        # Execute with retries
+        handler = self._handlers.get(step.type)
+        if not handler:
+            result.status = StepStatus.FAILED
+            result.error = f"Unknown step type: {step.type}"
+            return result
+
+        # Check circuit breaker if configured
+        cb_key = step.circuit_breaker_key or step.type
+        cb = _circuit_breakers.get(cb_key)
+        if cb and cb.is_open:
+            result.status = StepStatus.FAILED
+            result.error = f"Circuit breaker open for {cb_key}"
+            logger.warning(f"Step '{step.id}' skipped: circuit breaker open")
+            return result
+
+        last_error = None
+        for attempt in range(step.max_retries + 1):
+            result.retries = attempt
+            result.status = StepStatus.RUNNING
+
+            try:
+                # Create checkpoint before execution
+                if self.checkpoint_manager and workflow_id:
+                    with self.checkpoint_manager.stage(
+                        step.id,
+                        input_data=step.params,
+                        workflow_id=workflow_id,
+                    ) as ctx:
+                        # Run handler in executor to avoid blocking event loop
+                        loop = asyncio.get_event_loop()
+                        if cb:
+                            output = await loop.run_in_executor(
+                                None, cb.call, handler, step, self._context
+                            )
+                        else:
+                            output = await loop.run_in_executor(
+                                None, handler, step, self._context
+                            )
+                        ctx.output_data = output
+                        ctx.tokens_used = output.get("tokens_used", 0)
+                else:
+                    # Run handler in executor to avoid blocking event loop
+                    loop = asyncio.get_event_loop()
+                    if cb:
+                        output = await loop.run_in_executor(
+                            None, cb.call, handler, step, self._context
+                        )
+                    else:
+                        output = await loop.run_in_executor(
+                            None, handler, step, self._context
+                        )
+
+                # Validate output contract if applicable
+                if self.contract_validator and role:
+                    self.contract_validator.validate_output(role, output)
+
+                result.status = StepStatus.SUCCESS
+                result.output = output
+                result.tokens_used = output.get("tokens_used", 0)
+                break
+
+            except CircuitBreakerError as e:
+                # Circuit breaker opened during execution
+                result.status = StepStatus.FAILED
+                result.error = str(e)
+                break
+
+            except Exception as e:
+                last_error = str(e)
+                if attempt < step.max_retries:
+                    await asyncio.sleep(min(2**attempt, 30))  # Exponential backoff
+                else:
+                    result.status = StepStatus.FAILED
+                    result.error = last_error
+
+        result.duration_ms = int((time.time() - start_time) * 1000)
+        return result
+
+    async def _execute_fallback_async(
+        self, step: StepConfig, error: str | None, workflow_id: str | None
+    ) -> dict | None:
+        """Execute fallback strategy for a failed step asynchronously.
+
+        Args:
+            step: The failed step configuration
+            error: The error message from the failed step
+            workflow_id: Current workflow ID
+
+        Returns:
+            Fallback output dict, or None if fallback failed
+        """
+        if not step.fallback:
+            return None
+
+        fallback = step.fallback
+        logger.info(f"Executing fallback ({fallback.type}) for step '{step.id}'")
+
+        try:
+            if fallback.type == "default_value":
+                # Return the configured default value
+                return {"fallback_value": fallback.value, "fallback_used": True}
+
+            elif fallback.type == "alternate_step" and fallback.step:
+                # Execute an alternate step
+                alt_step = StepConfig.from_dict(fallback.step)
+                alt_result = await self._execute_step_async(alt_step, workflow_id)
+                if alt_result.status == StepStatus.SUCCESS:
+                    return alt_result.output
+                return None
+
+            elif fallback.type == "callback" and fallback.callback:
+                # Invoke a registered callback
+                if fallback.callback in self.fallback_callbacks:
+                    callback = self.fallback_callbacks[fallback.callback]
+                    # Run callback in executor if not async
+                    loop = asyncio.get_event_loop()
+                    return await loop.run_in_executor(
+                        None, callback, step, self._context, Exception(error or "Unknown")
+                    )
+                else:
+                    logger.warning(f"Fallback callback '{fallback.callback}' not registered")
+                    return None
+
+        except Exception as e:
+            logger.error(f"Fallback execution failed: {e}")
+            return None
+
+        return None
 
     def _execute_step(self, step: StepConfig, workflow_id: str = None) -> StepResult:
         """Execute a single workflow step."""
