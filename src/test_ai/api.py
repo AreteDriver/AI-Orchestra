@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Dict, Optional
 
-from fastapi import FastAPI, HTTPException, Header, Request, Response
+from fastapi import APIRouter, FastAPI, HTTPException, Header, Request, Response
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from slowapi import Limiter
@@ -181,6 +181,9 @@ workflow_engine = WorkflowEngine()
 prompt_manager = PromptTemplateManager()
 openai_client = OpenAIClient()
 
+# API v1 router
+v1_router = APIRouter(prefix="/v1", tags=["v1"])
+
 
 class LoginRequest(BaseModel):
     """Login request."""
@@ -223,7 +226,7 @@ def root():
     return {"app": "AI Workflow Orchestrator", "version": "0.1.0", "status": "running"}
 
 
-@app.post("/auth/login", response_model=LoginResponse)
+@v1_router.post("/auth/login", response_model=LoginResponse)
 @limiter.limit("5/minute")
 def login(request: Request, login_request: LoginRequest):
     """Login endpoint (simplified). Rate limited to 5 requests/minute per IP."""
@@ -234,14 +237,14 @@ def login(request: Request, login_request: LoginRequest):
     raise HTTPException(status_code=401, detail="Invalid credentials")
 
 
-@app.get("/workflows")
+@v1_router.get("/workflows")
 def list_workflows(authorization: Optional[str] = Header(None)):
     """List all workflows."""
     verify_auth(authorization)
     return workflow_engine.list_workflows()
 
 
-@app.get("/workflows/{workflow_id}")
+@v1_router.get("/workflows/{workflow_id}")
 def get_workflow(workflow_id: str, authorization: Optional[str] = Header(None)):
     """Get a specific workflow."""
     verify_auth(authorization)
@@ -253,7 +256,7 @@ def get_workflow(workflow_id: str, authorization: Optional[str] = Header(None)):
     return workflow
 
 
-@app.post("/workflows")
+@v1_router.post("/workflows")
 def create_workflow(workflow: Workflow, authorization: Optional[str] = Header(None)):
     """Create a new workflow."""
     verify_auth(authorization)
@@ -264,7 +267,7 @@ def create_workflow(workflow: Workflow, authorization: Optional[str] = Header(No
     raise HTTPException(status_code=500, detail="Failed to save workflow")
 
 
-@app.post("/workflows/execute")
+@v1_router.post("/workflows/execute")
 def execute_workflow(
     request: WorkflowExecuteRequest, authorization: Optional[str] = Header(None)
 ):
@@ -282,14 +285,14 @@ def execute_workflow(
     return result
 
 
-@app.get("/prompts")
+@v1_router.get("/prompts")
 def list_prompts(authorization: Optional[str] = Header(None)):
     """List all prompt templates."""
     verify_auth(authorization)
     return prompt_manager.list_templates()
 
 
-@app.get("/prompts/{template_id}")
+@v1_router.get("/prompts/{template_id}")
 def get_prompt(template_id: str, authorization: Optional[str] = Header(None)):
     """Get a specific prompt template."""
     verify_auth(authorization)
@@ -301,7 +304,7 @@ def get_prompt(template_id: str, authorization: Optional[str] = Header(None)):
     return template
 
 
-@app.post("/prompts")
+@v1_router.post("/prompts")
 def create_prompt(
     template: PromptTemplate, authorization: Optional[str] = Header(None)
 ):
@@ -314,7 +317,7 @@ def create_prompt(
     raise HTTPException(status_code=500, detail="Failed to save template")
 
 
-@app.delete("/prompts/{template_id}")
+@v1_router.delete("/prompts/{template_id}")
 def delete_prompt(template_id: str, authorization: Optional[str] = Header(None)):
     """Delete a prompt template."""
     verify_auth(authorization)
@@ -326,14 +329,14 @@ def delete_prompt(template_id: str, authorization: Optional[str] = Header(None))
 
 
 # Schedule endpoints
-@app.get("/schedules")
+@v1_router.get("/schedules")
 def list_schedules(authorization: Optional[str] = Header(None)):
     """List all schedules."""
     verify_auth(authorization)
     return schedule_manager.list_schedules()
 
 
-@app.get("/schedules/{schedule_id}")
+@v1_router.get("/schedules/{schedule_id}")
 def get_schedule(schedule_id: str, authorization: Optional[str] = Header(None)):
     """Get a specific schedule."""
     verify_auth(authorization)
@@ -345,7 +348,7 @@ def get_schedule(schedule_id: str, authorization: Optional[str] = Header(None)):
     return schedule
 
 
-@app.post("/schedules")
+@v1_router.post("/schedules")
 def create_schedule(
     schedule: WorkflowSchedule, authorization: Optional[str] = Header(None)
 ):
@@ -360,7 +363,7 @@ def create_schedule(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@app.put("/schedules/{schedule_id}")
+@v1_router.put("/schedules/{schedule_id}")
 def update_schedule(
     schedule_id: str,
     schedule: WorkflowSchedule,
@@ -380,7 +383,7 @@ def update_schedule(
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@app.delete("/schedules/{schedule_id}")
+@v1_router.delete("/schedules/{schedule_id}")
 def delete_schedule(schedule_id: str, authorization: Optional[str] = Header(None)):
     """Delete a schedule."""
     verify_auth(authorization)
@@ -391,7 +394,7 @@ def delete_schedule(schedule_id: str, authorization: Optional[str] = Header(None
     raise HTTPException(status_code=404, detail="Schedule not found")
 
 
-@app.post("/schedules/{schedule_id}/pause")
+@v1_router.post("/schedules/{schedule_id}/pause")
 def pause_schedule(schedule_id: str, authorization: Optional[str] = Header(None)):
     """Pause a schedule."""
     verify_auth(authorization)
@@ -402,7 +405,7 @@ def pause_schedule(schedule_id: str, authorization: Optional[str] = Header(None)
     raise HTTPException(status_code=404, detail="Schedule not found")
 
 
-@app.post("/schedules/{schedule_id}/resume")
+@v1_router.post("/schedules/{schedule_id}/resume")
 def resume_schedule(schedule_id: str, authorization: Optional[str] = Header(None)):
     """Resume a paused schedule."""
     verify_auth(authorization)
@@ -413,7 +416,7 @@ def resume_schedule(schedule_id: str, authorization: Optional[str] = Header(None
     raise HTTPException(status_code=404, detail="Schedule not found")
 
 
-@app.post("/schedules/{schedule_id}/trigger")
+@v1_router.post("/schedules/{schedule_id}/trigger")
 def trigger_schedule(schedule_id: str, authorization: Optional[str] = Header(None)):
     """Manually trigger a scheduled workflow immediately."""
     verify_auth(authorization)
@@ -424,7 +427,7 @@ def trigger_schedule(schedule_id: str, authorization: Optional[str] = Header(Non
     raise HTTPException(status_code=404, detail="Schedule not found")
 
 
-@app.get("/schedules/{schedule_id}/history")
+@v1_router.get("/schedules/{schedule_id}/history")
 def get_schedule_history(
     schedule_id: str,
     limit: int = 10,
@@ -442,14 +445,14 @@ def get_schedule_history(
 
 
 # Webhook endpoints (authenticated management)
-@app.get("/webhooks")
+@v1_router.get("/webhooks")
 def list_webhooks(authorization: Optional[str] = Header(None)):
     """List all webhooks."""
     verify_auth(authorization)
     return webhook_manager.list_webhooks()
 
 
-@app.get("/webhooks/{webhook_id}")
+@v1_router.get("/webhooks/{webhook_id}")
 def get_webhook(webhook_id: str, authorization: Optional[str] = Header(None)):
     """Get a specific webhook (includes secret)."""
     verify_auth(authorization)
@@ -461,7 +464,7 @@ def get_webhook(webhook_id: str, authorization: Optional[str] = Header(None)):
     return webhook
 
 
-@app.post("/webhooks")
+@v1_router.post("/webhooks")
 def create_webhook(webhook: Webhook, authorization: Optional[str] = Header(None)):
     """Create a new webhook."""
     verify_auth(authorization)
@@ -479,7 +482,7 @@ def create_webhook(webhook: Webhook, authorization: Optional[str] = Header(None)
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@app.put("/webhooks/{webhook_id}")
+@v1_router.put("/webhooks/{webhook_id}")
 def update_webhook(
     webhook_id: str,
     webhook: Webhook,
@@ -499,7 +502,7 @@ def update_webhook(
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@app.delete("/webhooks/{webhook_id}")
+@v1_router.delete("/webhooks/{webhook_id}")
 def delete_webhook(webhook_id: str, authorization: Optional[str] = Header(None)):
     """Delete a webhook."""
     verify_auth(authorization)
@@ -510,7 +513,7 @@ def delete_webhook(webhook_id: str, authorization: Optional[str] = Header(None))
     raise HTTPException(status_code=404, detail="Webhook not found")
 
 
-@app.post("/webhooks/{webhook_id}/regenerate-secret")
+@v1_router.post("/webhooks/{webhook_id}/regenerate-secret")
 def regenerate_webhook_secret(
     webhook_id: str, authorization: Optional[str] = Header(None)
 ):
@@ -524,7 +527,7 @@ def regenerate_webhook_secret(
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@app.get("/webhooks/{webhook_id}/history")
+@v1_router.get("/webhooks/{webhook_id}/history")
 def get_webhook_history(
     webhook_id: str,
     limit: int = 10,
@@ -586,7 +589,7 @@ async def trigger_webhook(
 
 
 # Job endpoints (async workflow execution)
-@app.post("/jobs")
+@v1_router.post("/jobs")
 def submit_job(
     request: WorkflowExecuteRequest, authorization: Optional[str] = Header(None)
 ):
@@ -605,7 +608,7 @@ def submit_job(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@app.get("/jobs")
+@v1_router.get("/jobs")
 def list_jobs(
     status: Optional[str] = None,
     workflow_id: Optional[str] = None,
@@ -628,14 +631,14 @@ def list_jobs(
     return [j.model_dump(mode="json") for j in jobs]
 
 
-@app.get("/jobs/stats")
+@v1_router.get("/jobs/stats")
 def get_job_stats(authorization: Optional[str] = Header(None)):
     """Get job statistics."""
     verify_auth(authorization)
     return job_manager.get_stats()
 
 
-@app.get("/jobs/{job_id}")
+@v1_router.get("/jobs/{job_id}")
 def get_job(job_id: str, authorization: Optional[str] = Header(None)):
     """Get job status and result."""
     verify_auth(authorization)
@@ -647,7 +650,7 @@ def get_job(job_id: str, authorization: Optional[str] = Header(None)):
     return job.model_dump(mode="json")
 
 
-@app.post("/jobs/{job_id}/cancel")
+@v1_router.post("/jobs/{job_id}/cancel")
 def cancel_job(job_id: str, authorization: Optional[str] = Header(None)):
     """Cancel a pending or running job."""
     verify_auth(authorization)
@@ -664,7 +667,7 @@ def cancel_job(job_id: str, authorization: Optional[str] = Header(None)):
     )
 
 
-@app.delete("/jobs/{job_id}")
+@v1_router.delete("/jobs/{job_id}")
 def delete_job(job_id: str, authorization: Optional[str] = Header(None)):
     """Delete a completed/failed/cancelled job."""
     verify_auth(authorization)
@@ -679,7 +682,7 @@ def delete_job(job_id: str, authorization: Optional[str] = Header(None)):
     raise HTTPException(status_code=400, detail="Cannot delete running job")
 
 
-@app.post("/jobs/cleanup")
+@v1_router.post("/jobs/cleanup")
 def cleanup_jobs(max_age_hours: int = 24, authorization: Optional[str] = Header(None)):
     """Remove old completed/failed/cancelled jobs."""
     verify_auth(authorization)
@@ -734,6 +737,10 @@ def database_health_check():
                 "timestamp": datetime.now().isoformat(),
             },
         )
+
+
+# Include versioned API router
+app.include_router(v1_router)
 
 
 if __name__ == "__main__":

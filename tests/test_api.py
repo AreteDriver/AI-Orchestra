@@ -80,7 +80,7 @@ def client(backend):
 @pytest.fixture
 def auth_headers(client):
     """Get authentication headers."""
-    response = client.post("/auth/login", json={"user_id": "test", "password": "demo"})
+    response = client.post("/v1/auth/login", json={"user_id": "test", "password": "demo"})
     token = response.json()["access_token"]
     return {"Authorization": f"Bearer {token}"}
 
@@ -144,7 +144,7 @@ class TestAuthEndpoints:
     def test_login_success(self, client):
         """POST /auth/login with valid credentials returns token."""
         response = client.post(
-            "/auth/login", json={"user_id": "test", "password": "demo"}
+            "/v1/auth/login", json={"user_id": "test", "password": "demo"}
         )
         assert response.status_code == 200
         data = response.json()
@@ -154,18 +154,18 @@ class TestAuthEndpoints:
     def test_login_failure(self, client):
         """POST /auth/login with invalid credentials returns 401."""
         response = client.post(
-            "/auth/login", json={"user_id": "test", "password": "wrong"}
+            "/v1/auth/login", json={"user_id": "test", "password": "wrong"}
         )
         assert response.status_code == 401
 
     def test_protected_endpoint_without_auth(self, client):
         """Protected endpoint without auth returns 401."""
-        response = client.get("/jobs")
+        response = client.get("/v1/jobs")
         assert response.status_code == 401
 
     def test_protected_endpoint_with_auth(self, client, auth_headers):
         """Protected endpoint with valid auth succeeds."""
-        response = client.get("/jobs", headers=auth_headers)
+        response = client.get("/v1/jobs", headers=auth_headers)
         assert response.status_code == 200
 
 
@@ -174,14 +174,14 @@ class TestJobEndpoints:
 
     def test_list_jobs_empty(self, client, auth_headers):
         """GET /jobs returns empty list initially."""
-        response = client.get("/jobs", headers=auth_headers)
+        response = client.get("/v1/jobs", headers=auth_headers)
         assert response.status_code == 200
         assert response.json() == []
 
     def test_submit_job(self, client, auth_headers):
         """POST /jobs submits a job."""
         response = client.post(
-            "/jobs",
+            "/v1/jobs",
             json={"workflow_id": "test-workflow", "variables": {"key": "value"}},
             headers=auth_headers,
         )
@@ -196,14 +196,14 @@ class TestJobEndpoints:
         """GET /jobs/{id} returns job details."""
         # Submit a job first
         submit_response = client.post(
-            "/jobs",
+            "/v1/jobs",
             json={"workflow_id": "test-workflow"},
             headers=auth_headers,
         )
         job_id = submit_response.json()["job_id"]
 
         # Get job
-        response = client.get(f"/jobs/{job_id}", headers=auth_headers)
+        response = client.get(f"/v1/jobs/{job_id}", headers=auth_headers)
         assert response.status_code == 200
         data = response.json()
         assert data["id"] == job_id
@@ -211,12 +211,12 @@ class TestJobEndpoints:
 
     def test_get_job_not_found(self, client, auth_headers):
         """GET /jobs/{id} returns 404 for nonexistent job."""
-        response = client.get("/jobs/nonexistent", headers=auth_headers)
+        response = client.get("/v1/jobs/nonexistent", headers=auth_headers)
         assert response.status_code == 404
 
     def test_get_job_stats(self, client, auth_headers):
         """GET /jobs/stats returns statistics."""
-        response = client.get("/jobs/stats", headers=auth_headers)
+        response = client.get("/v1/jobs/stats", headers=auth_headers)
         assert response.status_code == 200
         data = response.json()
         assert "total" in data
@@ -227,25 +227,25 @@ class TestJobEndpoints:
         """POST /jobs/{id}/cancel cancels a pending job."""
         # Submit a job
         submit_response = client.post(
-            "/jobs",
+            "/v1/jobs",
             json={"workflow_id": "test-workflow"},
             headers=auth_headers,
         )
         job_id = submit_response.json()["job_id"]
 
         # Cancel it (may fail if already completed)
-        response = client.post(f"/jobs/{job_id}/cancel", headers=auth_headers)
+        response = client.post(f"/v1/jobs/{job_id}/cancel", headers=auth_headers)
         # Either success or already completed
         assert response.status_code in (200, 400)
 
     def test_list_jobs_with_filter(self, client, auth_headers):
         """GET /jobs with status filter works."""
-        response = client.get("/jobs?status=completed", headers=auth_headers)
+        response = client.get("/v1/jobs?status=completed", headers=auth_headers)
         assert response.status_code == 200
 
     def test_list_jobs_invalid_status(self, client, auth_headers):
         """GET /jobs with invalid status returns 400."""
-        response = client.get("/jobs?status=invalid", headers=auth_headers)
+        response = client.get("/v1/jobs?status=invalid", headers=auth_headers)
         assert response.status_code == 400
 
 
@@ -254,14 +254,14 @@ class TestScheduleEndpoints:
 
     def test_list_schedules_empty(self, client, auth_headers):
         """GET /schedules returns empty list initially."""
-        response = client.get("/schedules", headers=auth_headers)
+        response = client.get("/v1/schedules", headers=auth_headers)
         assert response.status_code == 200
         assert response.json() == []
 
     def test_create_schedule(self, client, auth_headers):
         """POST /schedules creates a schedule."""
         response = client.post(
-            "/schedules",
+            "/v1/schedules",
             json={
                 "id": "test-schedule",
                 "workflow_id": "test-workflow",
@@ -280,7 +280,7 @@ class TestScheduleEndpoints:
         """GET /schedules/{id} returns schedule details."""
         # Create schedule first
         client.post(
-            "/schedules",
+            "/v1/schedules",
             json={
                 "id": "get-test",
                 "workflow_id": "test-workflow",
@@ -291,7 +291,7 @@ class TestScheduleEndpoints:
             headers=auth_headers,
         )
 
-        response = client.get("/schedules/get-test", headers=auth_headers)
+        response = client.get("/v1/schedules/get-test", headers=auth_headers)
         assert response.status_code == 200
         data = response.json()
         assert data["id"] == "get-test"
@@ -299,14 +299,14 @@ class TestScheduleEndpoints:
 
     def test_get_schedule_not_found(self, client, auth_headers):
         """GET /schedules/{id} returns 404 for nonexistent schedule."""
-        response = client.get("/schedules/nonexistent", headers=auth_headers)
+        response = client.get("/v1/schedules/nonexistent", headers=auth_headers)
         assert response.status_code == 404
 
     def test_delete_schedule(self, client, auth_headers):
         """DELETE /schedules/{id} deletes a schedule."""
         # Create schedule
         client.post(
-            "/schedules",
+            "/v1/schedules",
             json={
                 "id": "delete-me",
                 "workflow_id": "test-workflow",
@@ -318,18 +318,18 @@ class TestScheduleEndpoints:
         )
 
         # Delete it
-        response = client.delete("/schedules/delete-me", headers=auth_headers)
+        response = client.delete("/v1/schedules/delete-me", headers=auth_headers)
         assert response.status_code == 200
 
         # Verify deleted
-        response = client.get("/schedules/delete-me", headers=auth_headers)
+        response = client.get("/v1/schedules/delete-me", headers=auth_headers)
         assert response.status_code == 404
 
     def test_pause_resume_schedule(self, client, auth_headers):
         """POST /schedules/{id}/pause and resume work."""
         # Create schedule
         client.post(
-            "/schedules",
+            "/v1/schedules",
             json={
                 "id": "pause-test",
                 "workflow_id": "test-workflow",
@@ -341,11 +341,11 @@ class TestScheduleEndpoints:
         )
 
         # Pause
-        response = client.post("/schedules/pause-test/pause", headers=auth_headers)
+        response = client.post("/v1/schedules/pause-test/pause", headers=auth_headers)
         assert response.status_code == 200
 
         # Resume
-        response = client.post("/schedules/pause-test/resume", headers=auth_headers)
+        response = client.post("/v1/schedules/pause-test/resume", headers=auth_headers)
         assert response.status_code == 200
 
 
@@ -354,14 +354,14 @@ class TestWebhookEndpoints:
 
     def test_list_webhooks_empty(self, client, auth_headers):
         """GET /webhooks returns empty list initially."""
-        response = client.get("/webhooks", headers=auth_headers)
+        response = client.get("/v1/webhooks", headers=auth_headers)
         assert response.status_code == 200
         assert response.json() == []
 
     def test_create_webhook(self, client, auth_headers):
         """POST /webhooks creates a webhook."""
         response = client.post(
-            "/webhooks",
+            "/v1/webhooks",
             json={
                 "id": "test-webhook",
                 "name": "Test Webhook",
@@ -380,7 +380,7 @@ class TestWebhookEndpoints:
         """GET /webhooks/{id} returns webhook details."""
         # Create webhook first
         client.post(
-            "/webhooks",
+            "/v1/webhooks",
             json={
                 "id": "get-test",
                 "name": "Get Test",
@@ -389,7 +389,7 @@ class TestWebhookEndpoints:
             headers=auth_headers,
         )
 
-        response = client.get("/webhooks/get-test", headers=auth_headers)
+        response = client.get("/v1/webhooks/get-test", headers=auth_headers)
         assert response.status_code == 200
         data = response.json()
         assert data["id"] == "get-test"
@@ -398,14 +398,14 @@ class TestWebhookEndpoints:
 
     def test_get_webhook_not_found(self, client, auth_headers):
         """GET /webhooks/{id} returns 404 for nonexistent webhook."""
-        response = client.get("/webhooks/nonexistent", headers=auth_headers)
+        response = client.get("/v1/webhooks/nonexistent", headers=auth_headers)
         assert response.status_code == 404
 
     def test_delete_webhook(self, client, auth_headers):
         """DELETE /webhooks/{id} deletes a webhook."""
         # Create webhook
         client.post(
-            "/webhooks",
+            "/v1/webhooks",
             json={
                 "id": "delete-me",
                 "name": "Delete Me",
@@ -415,18 +415,18 @@ class TestWebhookEndpoints:
         )
 
         # Delete it
-        response = client.delete("/webhooks/delete-me", headers=auth_headers)
+        response = client.delete("/v1/webhooks/delete-me", headers=auth_headers)
         assert response.status_code == 200
 
         # Verify deleted
-        response = client.get("/webhooks/delete-me", headers=auth_headers)
+        response = client.get("/v1/webhooks/delete-me", headers=auth_headers)
         assert response.status_code == 404
 
     def test_regenerate_secret(self, client, auth_headers):
         """POST /webhooks/{id}/regenerate-secret generates new secret."""
         # Create webhook
         create_response = client.post(
-            "/webhooks",
+            "/v1/webhooks",
             json={
                 "id": "regen-test",
                 "name": "Regen Test",
@@ -438,7 +438,7 @@ class TestWebhookEndpoints:
 
         # Regenerate secret
         response = client.post(
-            "/webhooks/regen-test/regenerate-secret", headers=auth_headers
+            "/v1/webhooks/regen-test/regenerate-secret", headers=auth_headers
         )
         assert response.status_code == 200
         new_secret = response.json()["secret"]
@@ -448,7 +448,7 @@ class TestWebhookEndpoints:
         """POST /hooks/{id} triggers webhook without auth."""
         # Create webhook first (requires auth)
         client.post(
-            "/webhooks",
+            "/v1/webhooks",
             json={
                 "id": "trigger-test",
                 "name": "Trigger Test",
@@ -520,13 +520,13 @@ class TestRateLimiting:
         # Make 5 successful requests
         for _ in range(5):
             response = rate_limited_client.post(
-                "/auth/login", json={"user_id": "test", "password": "demo"}
+                "/v1/auth/login", json={"user_id": "test", "password": "demo"}
             )
             assert response.status_code == 200
 
         # 6th request should be rate limited
         response = rate_limited_client.post(
-            "/auth/login", json={"user_id": "test", "password": "demo"}
+            "/v1/auth/login", json={"user_id": "test", "password": "demo"}
         )
         assert response.status_code == 429
         assert "Retry-After" in response.headers

@@ -142,7 +142,7 @@ docker compose down
 ### Development: Plan → Build → Test → Review
 
 ```bash
-curl -X POST http://localhost:8000/workflows/execute \
+curl -X POST http://localhost:8000/v1/workflows/execute \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -171,7 +171,7 @@ for step_id, output in result.outputs.items():
 ### Analytics: Ingest → Analyze → Visualize → Report
 
 ```bash
-curl -X POST http://localhost:8000/workflows/execute \
+curl -X POST http://localhost:8000/v1/workflows/execute \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -265,7 +265,9 @@ Or use Docker Compose which configures PostgreSQL automatically.
 
 ## API Endpoints
 
-### Health & Monitoring
+All versioned endpoints use the `/v1` prefix. Health and webhook trigger endpoints remain unversioned for compatibility.
+
+### Health & Monitoring (Unversioned)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
@@ -276,36 +278,36 @@ Or use Docker Compose which configures PostgreSQL automatically.
 
 | Endpoint | Method | Rate Limit | Description |
 |----------|--------|------------|-------------|
-| `/auth/login` | POST | 5/min | Get access token |
+| `/v1/auth/login` | POST | 5/min | Get access token |
 
 ### Jobs (Async Workflow Execution)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/jobs` | GET | List jobs (filter by status, workflow_id) |
-| `/jobs` | POST | Submit workflow for async execution |
-| `/jobs/stats` | GET | Job statistics |
-| `/jobs/{id}` | GET | Get job status and result |
-| `/jobs/{id}/cancel` | POST | Cancel pending/running job |
+| `/v1/jobs` | GET | List jobs (filter by status, workflow_id) |
+| `/v1/jobs` | POST | Submit workflow for async execution |
+| `/v1/jobs/stats` | GET | Job statistics |
+| `/v1/jobs/{id}` | GET | Get job status and result |
+| `/v1/jobs/{id}/cancel` | POST | Cancel pending/running job |
 
 ### Schedules (Cron/Interval)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/schedules` | GET | List all schedules |
-| `/schedules` | POST | Create schedule (cron or interval) |
-| `/schedules/{id}` | GET | Get schedule details |
-| `/schedules/{id}/pause` | POST | Pause schedule |
-| `/schedules/{id}/resume` | POST | Resume schedule |
+| `/v1/schedules` | GET | List all schedules |
+| `/v1/schedules` | POST | Create schedule (cron or interval) |
+| `/v1/schedules/{id}` | GET | Get schedule details |
+| `/v1/schedules/{id}/pause` | POST | Pause schedule |
+| `/v1/schedules/{id}/resume` | POST | Resume schedule |
 
 ### Webhooks (Event-Driven)
 
 | Endpoint | Method | Rate Limit | Description |
 |----------|--------|------------|-------------|
-| `/webhooks` | GET | - | List webhooks |
-| `/webhooks` | POST | - | Create webhook |
-| `/webhooks/{id}` | GET | - | Get webhook (includes secret) |
-| `/hooks/{id}` | POST | 30/min | Trigger webhook (public) |
+| `/v1/webhooks` | GET | - | List webhooks |
+| `/v1/webhooks` | POST | - | Create webhook |
+| `/v1/webhooks/{id}` | GET | - | Get webhook (includes secret) |
+| `/hooks/{id}` | POST | 30/min | Trigger webhook (public, unversioned) |
 
 ### Rate Limiting
 
