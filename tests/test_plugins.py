@@ -443,7 +443,7 @@ class TestPluginLoader:
         """Create a temp directory with plugin files."""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create a valid plugin file
-            plugin_code = '''
+            plugin_code = """
 from test_ai.plugins.base import Plugin
 
 class MyPlugin(Plugin):
@@ -457,19 +457,19 @@ class MyPlugin(Plugin):
 
     def get_handlers(self):
         return {"my_handler": lambda p, c: {"result": "handled"}}
-'''
+"""
             plugin_path = Path(tmpdir) / "my_plugin.py"
             plugin_path.write_text(plugin_code)
 
             # Create another plugin
-            plugin2_code = '''
+            plugin2_code = """
 from test_ai.plugins.base import Plugin
 
 class AnotherPlugin(Plugin):
     @property
     def name(self):
         return "another"
-'''
+"""
             plugin2_path = Path(tmpdir) / "another.py"
             plugin2_path.write_text(plugin2_code)
 

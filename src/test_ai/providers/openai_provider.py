@@ -37,7 +37,9 @@ class OpenAIProvider(Provider):
         "o1-mini",
     ]
 
-    def __init__(self, config: ProviderConfig | None = None, api_key: str | None = None):
+    def __init__(
+        self, config: ProviderConfig | None = None, api_key: str | None = None
+    ):
         """Initialize OpenAI provider.
 
         Args:
@@ -174,13 +176,31 @@ class OpenAIProvider(Provider):
     def get_model_info(self, model: str) -> dict:
         """Get information about an OpenAI model."""
         model_info = {
-            "gpt-4o": {"context_window": 128000, "description": "Most capable GPT-4 model"},
-            "gpt-4o-mini": {"context_window": 128000, "description": "Fast and affordable"},
-            "gpt-4-turbo": {"context_window": 128000, "description": "High-capability GPT-4"},
+            "gpt-4o": {
+                "context_window": 128000,
+                "description": "Most capable GPT-4 model",
+            },
+            "gpt-4o-mini": {
+                "context_window": 128000,
+                "description": "Fast and affordable",
+            },
+            "gpt-4-turbo": {
+                "context_window": 128000,
+                "description": "High-capability GPT-4",
+            },
             "gpt-4": {"context_window": 8192, "description": "Original GPT-4"},
-            "gpt-3.5-turbo": {"context_window": 16385, "description": "Fast and inexpensive"},
-            "o1-preview": {"context_window": 128000, "description": "Reasoning model preview"},
-            "o1-mini": {"context_window": 128000, "description": "Fast reasoning model"},
+            "gpt-3.5-turbo": {
+                "context_window": 16385,
+                "description": "Fast and inexpensive",
+            },
+            "o1-preview": {
+                "context_window": 128000,
+                "description": "Reasoning model preview",
+            },
+            "o1-mini": {
+                "context_window": 128000,
+                "description": "Fast reasoning model",
+            },
         }
         info = model_info.get(model, {})
         return {

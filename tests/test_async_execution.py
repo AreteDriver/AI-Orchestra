@@ -356,9 +356,7 @@ class TestAsyncFallback:
             outputs=["callback_result"],
         )
 
-        executor = WorkflowExecutor(
-            fallback_callbacks={"my_handler": my_callback}
-        )
+        executor = WorkflowExecutor(fallback_callbacks={"my_handler": my_callback})
         result = await executor.execute_async(workflow)
 
         assert result.status == "success"
@@ -500,7 +498,9 @@ class TestAsyncCircuitBreaker:
     @pytest.mark.asyncio
     async def test_async_circuit_breaker_blocks(self):
         """Async respects open circuit breaker."""
-        configure_circuit_breaker("test_async_cb", failure_threshold=2, recovery_timeout=60)
+        configure_circuit_breaker(
+            "test_async_cb", failure_threshold=2, recovery_timeout=60
+        )
 
         workflow = WorkflowConfig(
             name="cb_async",
@@ -667,4 +667,6 @@ class TestAsyncConcurrency:
             other_task(),
         )
 
-        assert other_task_ran[0], "Other async task should have run during workflow execution"
+        assert other_task_ran[0], (
+            "Other async task should have run during workflow execution"
+        )

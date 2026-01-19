@@ -225,9 +225,7 @@ class TestCompletionResponse:
 
     def test_response_timestamp(self):
         """Test response has timestamp."""
-        response = CompletionResponse(
-            content="Test", model="gpt-4o", provider="openai"
-        )
+        response = CompletionResponse(content="Test", model="gpt-4o", provider="openai")
         assert response.timestamp is not None
         assert isinstance(response.timestamp, datetime)
 
@@ -298,9 +296,7 @@ class TestOpenAIProvider:
 
     def test_is_configured_with_key(self, openai_config):
         """Test is_configured returns True with key."""
-        with patch.object(
-            OpenAIProvider, "is_configured", return_value=True
-        ):
+        with patch.object(OpenAIProvider, "is_configured", return_value=True):
             provider = OpenAIProvider(config=openai_config)
             assert provider.is_configured() is True
 
@@ -382,9 +378,7 @@ class TestAnthropicProvider:
 
     def test_is_configured_with_key(self):
         """Test is_configured returns True with key."""
-        with patch.object(
-            AnthropicProvider, "is_configured", return_value=True
-        ):
+        with patch.object(AnthropicProvider, "is_configured", return_value=True):
             config = ProviderConfig(
                 provider_type=ProviderType.ANTHROPIC,
                 api_key="test-key",
@@ -617,15 +611,11 @@ class TestProviderManager:
                 result = manager.complete(completion_request, use_fallback=True)
                 assert result.content == "Fallback response"
 
-    def test_complete_no_fallback(
-        self, manager, openai_config, completion_request
-    ):
+    def test_complete_no_fallback(self, manager, openai_config, completion_request):
         """Test no fallback when disabled."""
         provider = manager.register("openai", config=openai_config)
 
-        with patch.object(
-            provider, "complete", side_effect=ProviderError("API down")
-        ):
+        with patch.object(provider, "complete", side_effect=ProviderError("API down")):
             with pytest.raises(ProviderError):
                 manager.complete(completion_request, use_fallback=False)
 
@@ -745,7 +735,9 @@ class TestModuleFunctions:
         """Test listing providers from global manager."""
         manager = get_manager()
         manager.register("openai", provider_type=ProviderType.OPENAI, api_key="key")
-        manager.register("anthropic", provider_type=ProviderType.ANTHROPIC, api_key="key")
+        manager.register(
+            "anthropic", provider_type=ProviderType.ANTHROPIC, api_key="key"
+        )
         providers = list_providers()
         assert "openai" in providers
         assert "anthropic" in providers

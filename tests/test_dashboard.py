@@ -156,8 +156,14 @@ class TestRenderSidebar:
             pages = call_args[0][1]  # Second positional arg is the options list
 
             expected_pages = [
-                "Dashboard", "Monitoring", "Agents", "Metrics",
-                "Workflows", "Prompts", "Execute", "Logs"
+                "Dashboard",
+                "Monitoring",
+                "Agents",
+                "Metrics",
+                "Workflows",
+                "Prompts",
+                "Execute",
+                "Logs",
             ]
             for page in expected_pages:
                 assert page in pages
@@ -168,9 +174,10 @@ class TestDashboardPage:
 
     def test_render_dashboard_shows_title(self, mock_streamlit):
         """Dashboard page shows title."""
-        with patch("test_ai.dashboard.app.get_workflow_engine") as mock_get_engine, \
-             patch("test_ai.dashboard.app.get_prompt_manager") as mock_get_prompts:
-
+        with (
+            patch("test_ai.dashboard.app.get_workflow_engine") as mock_get_engine,
+            patch("test_ai.dashboard.app.get_prompt_manager") as mock_get_prompts,
+        ):
             mock_engine = MagicMock()
             mock_engine.list_workflows.return_value = []
             mock_get_engine.return_value = mock_engine
@@ -188,9 +195,10 @@ class TestDashboardPage:
 
     def test_render_dashboard_shows_metrics(self, mock_streamlit):
         """Dashboard page displays workflow and prompt metrics."""
-        with patch("test_ai.dashboard.app.get_workflow_engine") as mock_get_engine, \
-             patch("test_ai.dashboard.app.get_prompt_manager") as mock_get_prompts:
-
+        with (
+            patch("test_ai.dashboard.app.get_workflow_engine") as mock_get_engine,
+            patch("test_ai.dashboard.app.get_prompt_manager") as mock_get_prompts,
+        ):
             mock_engine = MagicMock()
             mock_engine.list_workflows.return_value = [{"id": "wf1"}, {"id": "wf2"}]
             mock_get_engine.return_value = mock_engine
@@ -211,9 +219,10 @@ class TestDashboardPage:
         """Dashboard shows quick action buttons."""
         mock_streamlit.button.return_value = False
 
-        with patch("test_ai.dashboard.app.get_workflow_engine") as mock_get_engine, \
-             patch("test_ai.dashboard.app.get_prompt_manager") as mock_get_prompts:
-
+        with (
+            patch("test_ai.dashboard.app.get_workflow_engine") as mock_get_engine,
+            patch("test_ai.dashboard.app.get_prompt_manager") as mock_get_prompts,
+        ):
             mock_engine = MagicMock()
             mock_engine.list_workflows.return_value = []
             mock_get_engine.return_value = mock_engine
@@ -416,7 +425,12 @@ class TestPromptsPage:
             mock_manager = MagicMock()
             # Use 'id' and 'description' as expected by the dashboard code
             mock_manager.list_templates.return_value = [
-                {"id": "t1", "name": "Test", "role": "planner", "description": "Test desc"}
+                {
+                    "id": "t1",
+                    "name": "Test",
+                    "role": "planner",
+                    "description": "Test desc",
+                }
             ]
             mock_manager.get_template.return_value = MagicMock(
                 template_id="t1",
@@ -524,9 +538,10 @@ class TestMainApp:
         mock_streamlit.session_state.clear()
         mock_streamlit.sidebar.radio.return_value = "Dashboard"
 
-        with patch("test_ai.dashboard.app.render_sidebar") as mock_sidebar, \
-             patch("test_ai.dashboard.app.render_dashboard_page") as mock_render:
-
+        with (
+            patch("test_ai.dashboard.app.render_sidebar") as mock_sidebar,
+            patch("test_ai.dashboard.app.render_dashboard_page") as mock_render,
+        ):
             mock_sidebar.return_value = "Dashboard"
 
             from test_ai.dashboard.app import main
@@ -539,9 +554,10 @@ class TestMainApp:
         """Main app routes Workflows page correctly."""
         mock_streamlit.session_state.clear()
 
-        with patch("test_ai.dashboard.app.render_sidebar") as mock_sidebar, \
-             patch("test_ai.dashboard.app.render_workflows_page") as mock_render:
-
+        with (
+            patch("test_ai.dashboard.app.render_sidebar") as mock_sidebar,
+            patch("test_ai.dashboard.app.render_workflows_page") as mock_render,
+        ):
             mock_sidebar.return_value = "Workflows"
 
             from test_ai.dashboard.app import main
@@ -555,9 +571,10 @@ class TestMainApp:
         mock_streamlit.session_state.clear()
 
         # Patch where render_monitoring_page is imported (in app.py)
-        with patch("test_ai.dashboard.app.render_sidebar") as mock_sidebar, \
-             patch("test_ai.dashboard.app.render_monitoring_page") as mock_render:
-
+        with (
+            patch("test_ai.dashboard.app.render_sidebar") as mock_sidebar,
+            patch("test_ai.dashboard.app.render_monitoring_page") as mock_render,
+        ):
             mock_sidebar.return_value = "Monitoring"
 
             from test_ai.dashboard.app import main

@@ -545,7 +545,11 @@ class TestLogExporter:
 
         exporter.export(collector)
 
-        mock_logger.log.assert_called_with(logging.WARNING, "Metrics summary", extra=mock_logger.log.call_args[1]["extra"])
+        mock_logger.log.assert_called_with(
+            logging.WARNING,
+            "Metrics summary",
+            extra=mock_logger.log.call_args[1]["extra"],
+        )
 
 
 class TestFileExporter:

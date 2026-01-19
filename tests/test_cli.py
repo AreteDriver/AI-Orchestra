@@ -70,9 +70,7 @@ class TestDetectCodebaseContext:
 
     def test_detect_react_framework(self, tmp_path):
         """Detect React framework in JS/TS project."""
-        (tmp_path / "package.json").write_text(
-            '{"dependencies": {"react": "^18.0"}}'
-        )
+        (tmp_path / "package.json").write_text('{"dependencies": {"react": "^18.0"}}')
 
         context = detect_codebase_context(tmp_path)
 
@@ -81,9 +79,7 @@ class TestDetectCodebaseContext:
 
     def test_detect_nextjs_framework(self, tmp_path):
         """Detect Next.js framework in JS/TS project."""
-        (tmp_path / "package.json").write_text(
-            '{"dependencies": {"next": "^14.0"}}'
-        )
+        (tmp_path / "package.json").write_text('{"dependencies": {"next": "^14.0"}}')
 
         context = detect_codebase_context(tmp_path)
 
@@ -200,9 +196,7 @@ class TestInitCommand:
         """Init creates a workflow template file."""
         output_file = tmp_path / "test_workflow.json"
 
-        result = runner.invoke(
-            app, ["init", "Test Workflow", "-o", str(output_file)]
-        )
+        result = runner.invoke(app, ["init", "Test Workflow", "-o", str(output_file)])
 
         assert result.exit_code == 0
         assert output_file.exists()
@@ -246,9 +240,7 @@ class TestValidateCommand:
                 {
                     "id": "test",
                     "name": "Test",
-                    "steps": [
-                        {"id": "step1", "type": "transform", "action": "format"}
-                    ],
+                    "steps": [{"id": "step1", "type": "transform", "action": "format"}],
                 }
             )
         )
@@ -618,7 +610,9 @@ class TestAgentCommands:
             "structure": [],
         }
         mock_client = MagicMock()
-        mock_client.generate_completion.return_value = "The auth system uses JWT tokens."
+        mock_client.generate_completion.return_value = (
+            "The auth system uses JWT tokens."
+        )
         mock_get_client.return_value = mock_client
 
         result = runner.invoke(app, ["ask", "how does auth work?"])
@@ -694,16 +688,12 @@ class TestDoCommand:
         }
         mock_wf = MagicMock()
         mock_wf.name = "Test Workflow"
-        mock_wf.steps = [
-            MagicMock(id="s1", type="agent", params={"role": "planner"})
-        ]
+        mock_wf.steps = [MagicMock(id="s1", type="agent", params={"role": "planner"})]
         mock_load.return_value = mock_wf
 
         # Create mock workflows directory - patch where it's checked in do_task
         with patch.object(Path, "exists", return_value=True):
-            result = runner.invoke(
-                app, ["do", "add feature", "--dry-run"]
-            )
+            result = runner.invoke(app, ["do", "add feature", "--dry-run"])
 
         assert result.exit_code == 0
         assert "Dry run" in result.output

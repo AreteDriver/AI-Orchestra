@@ -299,7 +299,9 @@ class ProviderManager:
                 return {provider_name: provider.health_check()}
             return {provider_name: False}
 
-        return {name: provider.health_check() for name, provider in self._providers.items()}
+        return {
+            name: provider.health_check() for name, provider in self._providers.items()
+        }
 
 
 def get_manager() -> ProviderManager:

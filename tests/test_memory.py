@@ -306,7 +306,9 @@ class TestContextWindow:
     def test_add_tool_message(self):
         """Can add tool message."""
         window = ContextWindow()
-        msg = window.add_tool_message("Search result", name="search", tool_call_id="123")
+        msg = window.add_tool_message(
+            "Search result", name="search", tool_call_id="123"
+        )
 
         assert msg.role == MessageRole.TOOL
         assert msg.name == "search"
@@ -457,6 +459,7 @@ class TestContextWindow:
 
     def test_custom_token_counter(self):
         """Can use custom token counter."""
+
         def exact_counter(text):
             return len(text)  # One token per character
 

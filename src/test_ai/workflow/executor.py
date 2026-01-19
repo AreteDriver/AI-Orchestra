@@ -61,6 +61,7 @@ def reset_circuit_breakers() -> None:
         cb.reset()
     _circuit_breakers = {}
 
+
 # Lazy-loaded API clients to avoid circular imports
 _claude_client = None
 _openai_client = None
@@ -176,7 +177,8 @@ class WorkflowExecutor:
         budget_manager=None,
         dry_run: bool = False,
         error_callback: Callable[[str, str, Exception], None] | None = None,
-        fallback_callbacks: dict[str, Callable[[StepConfig, dict, Exception], dict]] | None = None,
+        fallback_callbacks: dict[str, Callable[[StepConfig, dict, Exception], dict]]
+        | None = None,
     ):
         """Initialize executor.
 
@@ -315,7 +317,9 @@ class WorkflowExecutor:
                             logger.info(f"Step '{step.id}' recovered via fallback")
                         else:
                             result.status = "failed"
-                            result.error = f"Step '{step.id}' failed and fallback failed"
+                            result.error = (
+                                f"Step '{step.id}' failed and fallback failed"
+                            )
                             break
 
                 # Store outputs in context
@@ -460,7 +464,9 @@ class WorkflowExecutor:
                             logger.info(f"Step '{step.id}' recovered via fallback")
                         else:
                             result.status = "failed"
-                            result.error = f"Step '{step.id}' failed and fallback failed"
+                            result.error = (
+                                f"Step '{step.id}' failed and fallback failed"
+                            )
                             break
 
                 # Store outputs in context
@@ -642,10 +648,16 @@ class WorkflowExecutor:
                     # Run callback in executor if not async
                     loop = asyncio.get_event_loop()
                     return await loop.run_in_executor(
-                        None, callback, step, self._context, Exception(error or "Unknown")
+                        None,
+                        callback,
+                        step,
+                        self._context,
+                        Exception(error or "Unknown"),
                     )
                 else:
-                    logger.warning(f"Fallback callback '{fallback.callback}' not registered")
+                    logger.warning(
+                        f"Fallback callback '{fallback.callback}' not registered"
+                    )
                     return None
 
         except Exception as e:
@@ -782,7 +794,9 @@ class WorkflowExecutor:
                     callback = self.fallback_callbacks[fallback.callback]
                     return callback(step, self._context, Exception(error or "Unknown"))
                 else:
-                    logger.warning(f"Fallback callback '{fallback.callback}' not registered")
+                    logger.warning(
+                        f"Fallback callback '{fallback.callback}' not registered"
+                    )
                     return None
 
         except Exception as e:

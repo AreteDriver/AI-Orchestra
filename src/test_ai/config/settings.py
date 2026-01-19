@@ -216,13 +216,13 @@ class Settings(BaseSettings):
                     "SECRET_KEY is using insecure default value. "
                     f"Set SECRET_KEY environment variable to a secure random string "
                     f"(minimum {_MIN_SECRET_KEY_LENGTH} characters). "
-                    f"Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(48))\""
+                    f'Generate one with: python -c "import secrets; print(secrets.token_urlsafe(48))"'
                 )
             else:
                 msg = (
                     f"SECRET_KEY is too short ({len(self.secret_key)} chars). "
                     f"Minimum length is {_MIN_SECRET_KEY_LENGTH} characters. "
-                    f"Generate a secure key with: python -c \"import secrets; print(secrets.token_urlsafe(48))\""
+                    f'Generate a secure key with: python -c "import secrets; print(secrets.token_urlsafe(48))"'
                 )
             issues.append(msg)
 

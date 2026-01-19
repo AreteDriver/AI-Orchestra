@@ -69,7 +69,9 @@ class StepConfig:
     type: Literal["claude_code", "openai", "shell", "parallel", "checkpoint"]
     params: dict = field(default_factory=dict)
     condition: ConditionConfig | None = None
-    on_failure: Literal["abort", "skip", "retry", "fallback", "continue_with_default"] = "abort"
+    on_failure: Literal[
+        "abort", "skip", "retry", "fallback", "continue_with_default"
+    ] = "abort"
     max_retries: int = 3
     timeout_seconds: int = 300
     outputs: list[str] = field(default_factory=list)

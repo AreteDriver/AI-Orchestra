@@ -739,10 +739,12 @@ class ContextWindow:
 
         # Add summary as a system message if present
         if self._summary:
-            messages.append({
-                "role": "system",
-                "content": f"Previous conversation summary:\n{self._summary}",
-            })
+            messages.append(
+                {
+                    "role": "system",
+                    "content": f"Previous conversation summary:\n{self._summary}",
+                }
+            )
 
         # Add all conversation messages
         messages.extend(m.to_dict() for m in self._messages)
@@ -903,7 +905,7 @@ class ContextWindow:
                         role = MessageRole(role_str)
                     except ValueError:
                         pass
-                    content = content[end_bracket + 2:]  # Skip "] "
+                    content = content[end_bracket + 2 :]  # Skip "] "
 
             self.add_message(role, content, metadata=mem.metadata)
             count += 1

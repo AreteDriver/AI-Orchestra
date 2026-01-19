@@ -211,9 +211,7 @@ class TestFallbackStrategies:
             outputs=["callback_result"],
         )
 
-        executor = WorkflowExecutor(
-            fallback_callbacks={"my_handler": my_callback}
-        )
+        executor = WorkflowExecutor(fallback_callbacks={"my_handler": my_callback})
         result = executor.execute(workflow)
 
         assert result.status == "success"
@@ -345,7 +343,9 @@ class TestCircuitBreaker:
 
     def test_circuit_breaker_resets_on_success(self):
         """Circuit breaker resets failure count on success."""
-        configure_circuit_breaker("test_reset", failure_threshold=3, recovery_timeout=60)
+        configure_circuit_breaker(
+            "test_reset", failure_threshold=3, recovery_timeout=60
+        )
 
         # Execute failing step
         fail_workflow = WorkflowConfig(
