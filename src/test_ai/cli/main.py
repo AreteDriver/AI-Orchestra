@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 from pathlib import Path
 from typing import Optional
@@ -13,9 +12,6 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from rich.progress import Progress, SpinnerColumn, TextColumn
-from rich.live import Live
-from rich.spinner import Spinner
-from rich.text import Text
 
 app = typer.Typer(
     name="gorgon",

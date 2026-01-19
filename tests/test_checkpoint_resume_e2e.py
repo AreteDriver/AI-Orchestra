@@ -81,7 +81,6 @@ class TestCheckpointResumeE2E:
         assert len(result.steps) == 3
 
         # Verify checkpoints were created
-        workflow_id = checkpoint_manager.current_workflow_id
         # After execution, current_workflow_id is cleared, so get from result
         # We need to get the workflow ID from persistence
         workflows = checkpoint_manager.persistence.list_workflows()
@@ -95,8 +94,6 @@ class TestCheckpointResumeE2E:
     def test_failed_workflow_can_resume(self, checkpoint_manager, temp_db):
         """Verify workflow can resume from checkpoint after failure."""
         # Create workflow with a step that fails
-        fail_step_index = 1  # Fail on step 2
-        call_count = {"count": 0}
 
         failing_workflow = WorkflowConfig(
             name="failing_workflow",
@@ -229,7 +226,7 @@ class TestCheckpointResumeE2E:
         wf_id = checkpoint_manager.start_workflow("test_progress")
 
         # Execute with explicit workflow_id
-        result = executor.execute(test_workflow)
+        executor.execute(test_workflow)
 
         # Get progress for the workflow created during execution
         workflows = checkpoint_manager.persistence.list_workflows()
