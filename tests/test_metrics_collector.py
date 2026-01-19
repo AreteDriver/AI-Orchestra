@@ -5,8 +5,7 @@ import logging
 import tempfile
 import pytest
 from pathlib import Path
-from datetime import datetime, timezone
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from test_ai.metrics.collector import (
     MetricsCollector,
@@ -534,7 +533,7 @@ class TestLogExporter:
         exporter = LogExporter(logger=mock_logger)
         workflow = collector.get_history()[0]
 
-        output = exporter.export_workflow(workflow)
+        exporter.export_workflow(workflow)
 
         mock_logger.log.assert_called_once()
         assert "success" in mock_logger.log.call_args[0][1]
@@ -597,7 +596,7 @@ class TestFileExporter:
         """Exporter creates output directory."""
         with tempfile.TemporaryDirectory() as tmpdir:
             new_dir = Path(tmpdir) / "nested" / "metrics"
-            exporter = FileExporter(output_dir=new_dir, format="json")
+            FileExporter(output_dir=new_dir, format="json")
 
             assert new_dir.exists()
 

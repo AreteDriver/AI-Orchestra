@@ -1,11 +1,10 @@
 """Tests for multi-provider support."""
 
 import pytest
-from unittest.mock import MagicMock, patch, PropertyMock
-from datetime import datetime, timezone
+from unittest.mock import MagicMock, patch
+from datetime import datetime
 
 from test_ai.providers import (
-    Provider,
     ProviderConfig,
     ProviderType,
     CompletionRequest,

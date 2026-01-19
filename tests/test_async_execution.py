@@ -2,7 +2,6 @@
 
 import asyncio
 import pytest
-from unittest.mock import MagicMock, patch
 
 from test_ai.workflow.loader import (
     WorkflowConfig,
@@ -598,7 +597,7 @@ class TestAsyncErrorCallback:
         )
 
         executor = WorkflowExecutor(error_callback=on_error)
-        result = await executor.execute_async(workflow)
+        await executor.execute_async(workflow)
 
         assert len(errors) == 1
         assert errors[0]["step_id"] == "failing_step"
@@ -639,7 +638,6 @@ class TestAsyncConcurrency:
     @pytest.mark.asyncio
     async def test_async_does_not_block_event_loop(self):
         """Async execution doesn't block the event loop."""
-        import time
 
         workflow = WorkflowConfig(
             name="nonblocking_async",

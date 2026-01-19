@@ -5,7 +5,7 @@ without requiring a running Streamlit server.
 """
 
 import sys
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 

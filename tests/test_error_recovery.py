@@ -1,7 +1,6 @@
 """Tests for enhanced error recovery in workflow executor."""
 
 import pytest
-from unittest.mock import MagicMock, patch
 
 from test_ai.workflow.loader import (
     WorkflowConfig,
@@ -275,7 +274,7 @@ class TestErrorCallback:
         )
 
         executor = WorkflowExecutor(error_callback=on_error)
-        result = executor.execute(workflow)
+        executor.execute(workflow)
 
         assert len(errors) == 1
         assert errors[0]["step_id"] == "failing_step"

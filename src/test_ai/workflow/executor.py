@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Callable
 
-from .loader import WorkflowConfig, StepConfig, FallbackConfig
+from .loader import WorkflowConfig, StepConfig
 from .parallel import ParallelExecutor, ParallelTask, ParallelStrategy
 from test_ai.utils.validation import substitute_shell_variables, validate_shell_command
 from test_ai.utils.circuit_breaker import CircuitBreaker, CircuitBreakerError

@@ -2,7 +2,6 @@
 
 import pytest
 import tempfile
-import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -10,14 +9,11 @@ from test_ai.plugins.base import (
     Plugin,
     PluginContext,
     PluginHook,
-    StepHandler,
     SimplePlugin,
 )
 from test_ai.plugins.registry import (
     PluginRegistry,
     get_registry,
-    register_plugin,
-    register_handler,
 )
 from test_ai.plugins.loader import (
     load_plugin_from_file,
