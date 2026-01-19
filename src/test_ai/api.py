@@ -996,6 +996,63 @@ def full_health_check():
     return health
 
 
+# =============================================================================
+# Metrics Endpoint
+# =============================================================================
+
+
+@app.get("/metrics", include_in_schema=False)
+def metrics_endpoint():
+    """Prometheus metrics endpoint.
+
+    Exposes application metrics in Prometheus text format for scraping.
+    Excludes from OpenAPI schema since it's infrastructure-only.
+
+    Returns:
+        Plain text response with Prometheus metrics
+    """
+    from test_ai.metrics import get_collector, PrometheusExporter
+
+    collector = get_collector()
+    exporter = PrometheusExporter(prefix="gorgon")
+
+    # Export workflow metrics
+    metrics_output = exporter.export(collector)
+
+    # Add API-specific metrics
+    lines = [metrics_output.rstrip()]
+
+    # Application state metrics
+    lines.append("# TYPE gorgon_app_ready gauge")
+    lines.append(f"gorgon_app_ready {1 if _app_state['ready'] else 0}")
+
+    lines.append("# TYPE gorgon_app_shutting_down gauge")
+    lines.append(f"gorgon_app_shutting_down {1 if _app_state['shutting_down'] else 0}")
+
+    lines.append("# TYPE gorgon_active_requests gauge")
+    lines.append(f"gorgon_active_requests {_app_state['active_requests']}")
+
+    # Uptime metric
+    if _app_state["start_time"]:
+        uptime = (datetime.now() - _app_state["start_time"]).total_seconds()
+        lines.append("# TYPE gorgon_uptime_seconds counter")
+        lines.append(f"gorgon_uptime_seconds {uptime:.2f}")
+
+    # Circuit breaker metrics
+    for name, stats in get_all_circuit_stats().items():
+        safe_name = name.replace("-", "_").replace(".", "_")
+        lines.append(f"# TYPE gorgon_circuit_breaker_{safe_name}_state gauge")
+        state_value = {"closed": 0, "open": 1, "half_open": 2}.get(stats["state"], -1)
+        lines.append(f"gorgon_circuit_breaker_{safe_name}_state {state_value}")
+
+        lines.append(f"# TYPE gorgon_circuit_breaker_{safe_name}_failures gauge")
+        lines.append(f"gorgon_circuit_breaker_{safe_name}_failures {stats['failure_count']}")
+
+    from starlette.responses import PlainTextResponse
+
+    return PlainTextResponse("\n".join(lines) + "\n", media_type="text/plain")
+
+
 # Include versioned API router
 app.include_router(v1_router)
 

@@ -128,6 +128,38 @@ class TestHealthEndpoint:
         assert len(response.headers["X-Request-ID"]) == 8
 
 
+class TestMetricsEndpoint:
+    """Tests for Prometheus metrics endpoint."""
+
+    def test_metrics_returns_prometheus_format(self, client):
+        """GET /metrics returns Prometheus text format."""
+        response = client.get("/metrics")
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "text/plain; charset=utf-8"
+
+        # Check for expected metrics
+        text = response.text
+        assert "gorgon_app_ready" in text
+        assert "gorgon_active_requests" in text
+
+    def test_metrics_contains_type_annotations(self, client):
+        """Metrics include TYPE annotations for Prometheus."""
+        response = client.get("/metrics")
+        text = response.text
+
+        # Should have TYPE comments for gauges
+        assert "# TYPE gorgon_app_ready gauge" in text
+        assert "# TYPE gorgon_active_requests gauge" in text
+
+    def test_metrics_values_are_numeric(self, client):
+        """Metric values should be numeric."""
+        response = client.get("/metrics")
+        text = response.text
+
+        # gorgon_app_ready should be 0 or 1
+        assert "gorgon_app_ready 1" in text or "gorgon_app_ready 0" in text
+
+
 class TestRootEndpoint:
     """Tests for root endpoint."""
 
