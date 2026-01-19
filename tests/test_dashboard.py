@@ -1,0 +1,567 @@
+"""Tests for Gorgon Dashboard.
+
+These tests mock Streamlit components to verify dashboard logic
+without requiring a running Streamlit server.
+"""
+
+import sys
+from unittest.mock import MagicMock, patch, PropertyMock
+
+import pytest
+
+
+# Create mock streamlit module before importing dashboard
+@pytest.fixture(autouse=True)
+def mock_streamlit():
+    """Mock streamlit module for all tests."""
+    mock_st = MagicMock()
+
+    # Create a dict-like object that also supports attribute access
+    class SessionState(dict):
+        def __getattr__(self, name):
+            try:
+                return self[name]
+            except KeyError:
+                raise AttributeError(name)
+
+        def __setattr__(self, name, value):
+            self[name] = value
+
+        def __delattr__(self, name):
+            try:
+                del self[name]
+            except KeyError:
+                raise AttributeError(name)
+
+    mock_st.session_state = SessionState()
+    mock_st.cache_resource = lambda f: f  # Pass through decorator
+
+    # Mock column context managers - return correct number based on arg
+    def create_columns(n):
+        cols = []
+        for _ in range(n if isinstance(n, int) else len(n)):
+            mock_col = MagicMock()
+            mock_col.__enter__ = MagicMock(return_value=mock_col)
+            mock_col.__exit__ = MagicMock(return_value=False)
+            cols.append(mock_col)
+        return cols
+
+    mock_st.columns.side_effect = create_columns
+
+    # Mock tabs context manager
+    def create_tabs(labels):
+        tabs = []
+        for _ in labels:
+            mock_tab = MagicMock()
+            mock_tab.__enter__ = MagicMock(return_value=mock_tab)
+            mock_tab.__exit__ = MagicMock(return_value=False)
+            tabs.append(mock_tab)
+        return tabs
+
+    mock_st.tabs.side_effect = create_tabs
+
+    # Mock expander context manager
+    def create_expander(label, **kwargs):
+        mock_expander = MagicMock()
+        mock_expander.__enter__ = MagicMock(return_value=mock_expander)
+        mock_expander.__exit__ = MagicMock(return_value=False)
+        return mock_expander
+
+    mock_st.expander.side_effect = create_expander
+
+    with patch.dict(sys.modules, {"streamlit": mock_st}):
+        yield mock_st
+
+
+class TestDashboardHelpers:
+    """Test dashboard helper functions."""
+
+    def test_get_workflow_engine(self, mock_streamlit):
+        """get_workflow_engine returns WorkflowEngine instance."""
+        with patch("test_ai.orchestrator.WorkflowEngine") as mock_engine_class:
+            mock_engine = MagicMock()
+            mock_engine_class.return_value = mock_engine
+
+            from test_ai.dashboard.app import get_workflow_engine
+
+            result = get_workflow_engine()
+
+            assert result is not None
+            mock_engine_class.assert_called_once()
+
+    def test_get_prompt_manager(self, mock_streamlit):
+        """get_prompt_manager returns PromptTemplateManager instance."""
+        with patch("test_ai.prompts.PromptTemplateManager") as mock_manager_class:
+            mock_manager = MagicMock()
+            mock_manager_class.return_value = mock_manager
+
+            from test_ai.dashboard.app import get_prompt_manager
+
+            result = get_prompt_manager()
+
+            assert result is not None
+            mock_manager_class.assert_called_once()
+
+    def test_get_openai_client(self, mock_streamlit):
+        """get_openai_client returns OpenAIClient instance."""
+        with patch("test_ai.api_clients.OpenAIClient") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client_class.return_value = mock_client
+
+            from test_ai.dashboard.app import get_openai_client
+
+            result = get_openai_client()
+
+            assert result is not None
+            mock_client_class.assert_called_once()
+
+
+class TestRenderSidebar:
+    """Test sidebar rendering."""
+
+    def test_render_sidebar_shows_title(self, mock_streamlit):
+        """Sidebar displays Gorgon title."""
+        with patch("test_ai.dashboard.monitoring_pages.render_system_status"):
+            from test_ai.dashboard.app import render_sidebar
+
+            render_sidebar()
+
+            mock_streamlit.sidebar.title.assert_called_once()
+            title_call = mock_streamlit.sidebar.title.call_args[0][0]
+            assert "Gorgon" in title_call
+
+    def test_render_sidebar_shows_navigation(self, mock_streamlit):
+        """Sidebar displays navigation radio buttons."""
+        mock_streamlit.sidebar.radio.return_value = "Dashboard"
+
+        with patch("test_ai.dashboard.monitoring_pages.render_system_status"):
+            from test_ai.dashboard.app import render_sidebar
+
+            page = render_sidebar()
+
+            mock_streamlit.sidebar.radio.assert_called_once()
+            assert page == "Dashboard"
+
+    def test_render_sidebar_pages(self, mock_streamlit):
+        """Sidebar includes all expected pages."""
+        mock_streamlit.sidebar.radio.return_value = "Workflows"
+
+        with patch("test_ai.dashboard.monitoring_pages.render_system_status"):
+            from test_ai.dashboard.app import render_sidebar
+
+            render_sidebar()
+
+            # Check that all pages are present
+            call_args = mock_streamlit.sidebar.radio.call_args
+            pages = call_args[0][1]  # Second positional arg is the options list
+
+            expected_pages = [
+                "Dashboard", "Monitoring", "Agents", "Metrics",
+                "Workflows", "Prompts", "Execute", "Logs"
+            ]
+            for page in expected_pages:
+                assert page in pages
+
+
+class TestDashboardPage:
+    """Test main dashboard page rendering."""
+
+    def test_render_dashboard_shows_title(self, mock_streamlit):
+        """Dashboard page shows title."""
+        with patch("test_ai.dashboard.app.get_workflow_engine") as mock_get_engine, \
+             patch("test_ai.dashboard.app.get_prompt_manager") as mock_get_prompts:
+
+            mock_engine = MagicMock()
+            mock_engine.list_workflows.return_value = []
+            mock_get_engine.return_value = mock_engine
+
+            mock_prompts = MagicMock()
+            mock_prompts.list_templates.return_value = []
+            mock_get_prompts.return_value = mock_prompts
+
+            from test_ai.dashboard.app import render_dashboard_page
+
+            render_dashboard_page()
+
+            mock_streamlit.title.assert_called_once()
+            assert "Dashboard" in mock_streamlit.title.call_args[0][0]
+
+    def test_render_dashboard_shows_metrics(self, mock_streamlit):
+        """Dashboard page displays workflow and prompt metrics."""
+        with patch("test_ai.dashboard.app.get_workflow_engine") as mock_get_engine, \
+             patch("test_ai.dashboard.app.get_prompt_manager") as mock_get_prompts:
+
+            mock_engine = MagicMock()
+            mock_engine.list_workflows.return_value = [{"id": "wf1"}, {"id": "wf2"}]
+            mock_get_engine.return_value = mock_engine
+
+            mock_prompts = MagicMock()
+            mock_prompts.list_templates.return_value = [{"id": "p1"}]
+            mock_get_prompts.return_value = mock_prompts
+
+            from test_ai.dashboard.app import render_dashboard_page
+
+            render_dashboard_page()
+
+            # Should call st.metric for counts
+            metric_calls = mock_streamlit.metric.call_args_list
+            assert len(metric_calls) >= 2
+
+    def test_render_dashboard_quick_actions(self, mock_streamlit):
+        """Dashboard shows quick action buttons."""
+        mock_streamlit.button.return_value = False
+
+        with patch("test_ai.dashboard.app.get_workflow_engine") as mock_get_engine, \
+             patch("test_ai.dashboard.app.get_prompt_manager") as mock_get_prompts:
+
+            mock_engine = MagicMock()
+            mock_engine.list_workflows.return_value = []
+            mock_get_engine.return_value = mock_engine
+
+            mock_prompts = MagicMock()
+            mock_prompts.list_templates.return_value = []
+            mock_get_prompts.return_value = mock_prompts
+
+            from test_ai.dashboard.app import render_dashboard_page
+
+            render_dashboard_page()
+
+            # Should have at least 2 button calls (Create Workflow, Create Prompt)
+            assert mock_streamlit.button.call_count >= 2
+
+
+class TestWorkflowsPage:
+    """Test workflows management page."""
+
+    def test_render_workflows_shows_list(self, mock_streamlit):
+        """Workflows page shows list of workflows."""
+        mock_streamlit.button.return_value = False
+        # Setup text_area to return valid JSON
+        mock_streamlit.text_area.return_value = "{}"
+        mock_streamlit.number_input.return_value = 1
+        mock_streamlit.text_input.return_value = ""
+        mock_streamlit.selectbox.return_value = "openai"
+
+        with patch("test_ai.dashboard.app.get_workflow_engine") as mock_get_engine:
+            mock_engine = MagicMock()
+            mock_engine.list_workflows.return_value = [
+                {"id": "wf1", "name": "Workflow 1", "description": "Test"}
+            ]
+            mock_get_engine.return_value = mock_engine
+
+            from test_ai.dashboard.app import render_workflows_page
+
+            render_workflows_page()
+
+            # Should display the workflow
+            mock_streamlit.expander.assert_called()
+
+    def test_render_workflows_empty_state(self, mock_streamlit):
+        """Workflows page shows empty state message."""
+        # Setup inputs with valid values
+        mock_streamlit.text_area.return_value = "{}"
+        mock_streamlit.number_input.return_value = 1
+        mock_streamlit.text_input.return_value = ""
+        mock_streamlit.selectbox.return_value = "openai"
+
+        with patch("test_ai.dashboard.app.get_workflow_engine") as mock_get_engine:
+            mock_engine = MagicMock()
+            mock_engine.list_workflows.return_value = []
+            mock_get_engine.return_value = mock_engine
+
+            from test_ai.dashboard.app import render_workflows_page
+
+            render_workflows_page()
+
+            # Should show info message about creating first workflow
+            mock_streamlit.info.assert_called()
+
+
+class TestMonitoringPages:
+    """Test monitoring dashboard pages."""
+
+    def test_get_tracker_lazy_loads(self, mock_streamlit):
+        """get_tracker lazily imports the tracker module."""
+        with patch("test_ai.monitoring.get_tracker") as mock_get:
+            mock_tracker = MagicMock()
+            mock_get.return_value = mock_tracker
+
+            from test_ai.dashboard.monitoring_pages import get_tracker
+
+            result = get_tracker()
+
+            assert result == mock_tracker
+            mock_get.assert_called_once()
+
+    def test_get_agent_tracker_creates_once(self, mock_streamlit):
+        """get_agent_tracker creates tracker in session state."""
+        # Use the proper SessionState object from fixture
+        mock_streamlit.session_state.clear()
+
+        with patch("test_ai.monitoring.tracker.AgentTracker") as mock_tracker_class:
+            mock_tracker = MagicMock()
+            mock_tracker_class.return_value = mock_tracker
+
+            from test_ai.dashboard.monitoring_pages import get_agent_tracker
+
+            result1 = get_agent_tracker()
+            result2 = get_agent_tracker()
+
+            # Should create only once, return cached instance
+            mock_tracker_class.assert_called_once()
+            assert result1 == result2
+
+    def test_render_monitoring_handles_tracker_error(self, mock_streamlit):
+        """Monitoring page handles tracker errors gracefully."""
+        mock_streamlit.toggle.return_value = False  # Disable auto-refresh
+
+        with patch("test_ai.dashboard.monitoring_pages.get_tracker") as mock_get:
+            mock_get.side_effect = Exception("Tracker unavailable")
+
+            from test_ai.dashboard.monitoring_pages import render_monitoring_page
+
+            # Should not raise, should show warning
+            render_monitoring_page()
+
+            mock_streamlit.warning.assert_called()
+
+    def test_render_monitoring_shows_metrics(self, mock_streamlit):
+        """Monitoring page displays summary metrics."""
+        mock_streamlit.toggle.return_value = False
+
+        with patch("test_ai.dashboard.monitoring_pages.get_tracker") as mock_get:
+            mock_tracker = MagicMock()
+            mock_tracker.get_dashboard_data.return_value = {
+                "summary": {
+                    "active_workflows": 5,
+                    "total_executions": 100,
+                    "success_rate": 95.0,
+                    "avg_duration_ms": 500,
+                },
+                "active_workflows": [],
+                "recent_executions": [],
+            }
+            mock_get.return_value = mock_tracker
+
+            from test_ai.dashboard.monitoring_pages import render_monitoring_page
+
+            render_monitoring_page()
+
+            # Should display metrics
+            assert mock_streamlit.metric.call_count >= 4
+
+    def test_render_agents_page(self, mock_streamlit):
+        """Agents page renders agent status."""
+        mock_streamlit.toggle.return_value = False
+
+        with patch("test_ai.dashboard.monitoring_pages.get_agent_tracker") as mock_get:
+            mock_tracker = MagicMock()
+            mock_tracker.get_all_status.return_value = {}
+            mock_get.return_value = mock_tracker
+
+            from test_ai.dashboard.monitoring_pages import render_agents_page
+
+            render_agents_page()
+
+            # Should show title
+            mock_streamlit.title.assert_called()
+
+    def test_render_metrics_page(self, mock_streamlit):
+        """Metrics page renders charts."""
+        with patch("test_ai.dashboard.monitoring_pages.get_tracker") as mock_get:
+            mock_tracker = MagicMock()
+            mock_tracker.get_dashboard_data.return_value = {
+                "summary": {},
+                "recent_executions": [],
+            }
+            mock_get.return_value = mock_tracker
+
+            from test_ai.dashboard.monitoring_pages import render_metrics_page
+
+            render_metrics_page()
+
+            mock_streamlit.title.assert_called()
+
+    def test_render_system_status(self, mock_streamlit):
+        """System status renders in sidebar."""
+        with patch("test_ai.dashboard.monitoring_pages.get_tracker") as mock_get:
+            mock_tracker = MagicMock()
+            mock_tracker.get_dashboard_data.return_value = {
+                "summary": {
+                    "active_workflows": 2,
+                    "success_rate": 90.0,
+                },
+            }
+            mock_get.return_value = mock_tracker
+
+            from test_ai.dashboard.monitoring_pages import render_system_status
+
+            render_system_status()
+
+            # Should write to sidebar
+            mock_streamlit.sidebar.markdown.assert_called()
+
+
+class TestPromptsPage:
+    """Test prompts management page."""
+
+    def test_render_prompts_shows_list(self, mock_streamlit):
+        """Prompts page shows list of templates."""
+        mock_streamlit.button.return_value = False
+        mock_streamlit.text_input.return_value = ""
+        mock_streamlit.text_area.return_value = ""
+        mock_streamlit.selectbox.return_value = "planner"
+
+        with patch("test_ai.dashboard.app.get_prompt_manager") as mock_get:
+            mock_manager = MagicMock()
+            # Use 'id' and 'description' as expected by the dashboard code
+            mock_manager.list_templates.return_value = [
+                {"id": "t1", "name": "Test", "role": "planner", "description": "Test desc"}
+            ]
+            mock_manager.get_template.return_value = MagicMock(
+                template_id="t1",
+                name="Test",
+                role="planner",
+                template="Test template",
+                description="Test desc",
+            )
+            mock_get.return_value = mock_manager
+
+            from test_ai.dashboard.app import render_prompts_page
+
+            render_prompts_page()
+
+            mock_streamlit.expander.assert_called()
+
+    def test_render_prompts_empty_state(self, mock_streamlit):
+        """Prompts page shows empty state."""
+        mock_streamlit.text_input.return_value = ""
+        mock_streamlit.text_area.return_value = ""
+        mock_streamlit.selectbox.return_value = "planner"
+
+        with patch("test_ai.dashboard.app.get_prompt_manager") as mock_get:
+            mock_manager = MagicMock()
+            mock_manager.list_templates.return_value = []
+            mock_get.return_value = mock_manager
+
+            from test_ai.dashboard.app import render_prompts_page
+
+            render_prompts_page()
+
+            mock_streamlit.info.assert_called()
+
+
+class TestExecutePage:
+    """Test workflow execution page."""
+
+    def test_render_execute_no_workflow(self, mock_streamlit):
+        """Execute page shows selection when no workflow selected."""
+        mock_streamlit.session_state.clear()
+        mock_streamlit.selectbox.return_value = None
+
+        with patch("test_ai.dashboard.app.get_workflow_engine") as mock_get:
+            mock_engine = MagicMock()
+            mock_engine.list_workflows.return_value = []
+            mock_get.return_value = mock_engine
+
+            from test_ai.dashboard.app import render_execute_page
+
+            render_execute_page()
+
+            mock_streamlit.title.assert_called()
+
+    def test_render_execute_with_workflow(self, mock_streamlit):
+        """Execute page shows workflow details when selected."""
+        mock_streamlit.session_state.clear()
+        mock_streamlit.session_state["execute_workflow_id"] = "wf1"
+        mock_streamlit.button.return_value = False
+        mock_streamlit.text_input.return_value = ""
+        # Return the actual workflow id from selectbox
+        mock_streamlit.selectbox.return_value = "wf1"
+
+        with patch("test_ai.dashboard.app.get_workflow_engine") as mock_get:
+            mock_engine = MagicMock()
+            mock_engine.list_workflows.return_value = [{"id": "wf1", "name": "Test"}]
+            mock_workflow = MagicMock()
+            mock_workflow.id = "wf1"
+            mock_workflow.name = "Test Workflow"
+            mock_workflow.description = "Test"
+            mock_workflow.steps = []
+            mock_workflow.variables = {}
+            mock_engine.load_workflow.return_value = mock_workflow
+            mock_get.return_value = mock_engine
+
+            from test_ai.dashboard.app import render_execute_page
+
+            render_execute_page()
+
+            # load_workflow is called with selectbox value
+            mock_engine.load_workflow.assert_called_with("wf1")
+
+
+class TestLogsPage:
+    """Test logs page."""
+
+    def test_render_logs_empty(self, mock_streamlit):
+        """Logs page shows empty state."""
+        with patch("test_ai.dashboard.app.get_workflow_engine") as mock_get:
+            mock_engine = MagicMock()
+            mock_engine.settings.logs_dir.glob.return_value = []
+            mock_get.return_value = mock_engine
+
+            from test_ai.dashboard.app import render_logs_page
+
+            render_logs_page()
+
+            mock_streamlit.info.assert_called()
+
+
+class TestMainApp:
+    """Test main app routing."""
+
+    def test_main_routes_to_dashboard(self, mock_streamlit):
+        """Main app routes Dashboard page correctly."""
+        mock_streamlit.session_state.clear()
+        mock_streamlit.sidebar.radio.return_value = "Dashboard"
+
+        with patch("test_ai.dashboard.app.render_sidebar") as mock_sidebar, \
+             patch("test_ai.dashboard.app.render_dashboard_page") as mock_render:
+
+            mock_sidebar.return_value = "Dashboard"
+
+            from test_ai.dashboard.app import main
+
+            main()
+
+            mock_render.assert_called_once()
+
+    def test_main_routes_to_workflows(self, mock_streamlit):
+        """Main app routes Workflows page correctly."""
+        mock_streamlit.session_state.clear()
+
+        with patch("test_ai.dashboard.app.render_sidebar") as mock_sidebar, \
+             patch("test_ai.dashboard.app.render_workflows_page") as mock_render:
+
+            mock_sidebar.return_value = "Workflows"
+
+            from test_ai.dashboard.app import main
+
+            main()
+
+            mock_render.assert_called_once()
+
+    def test_main_routes_to_monitoring(self, mock_streamlit):
+        """Main app routes Monitoring page correctly."""
+        mock_streamlit.session_state.clear()
+
+        # Patch where render_monitoring_page is imported (in app.py)
+        with patch("test_ai.dashboard.app.render_sidebar") as mock_sidebar, \
+             patch("test_ai.dashboard.app.render_monitoring_page") as mock_render:
+
+            mock_sidebar.return_value = "Monitoring"
+
+            from test_ai.dashboard.app import main
+
+            main()
+
+            mock_render.assert_called_once()
