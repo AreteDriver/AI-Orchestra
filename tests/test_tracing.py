@@ -633,3 +633,230 @@ class TestTracingIntegration:
 
         # The outer trace should have captured the error
         # (Note: in real usage, the trace would be logged/exported before this)
+
+
+# =============================================================================
+# Middleware Tests
+# =============================================================================
+
+
+class TestTracingMiddleware:
+    """Tests for TracingMiddleware."""
+
+    def setup_method(self):
+        """Reset context before each test."""
+        end_trace()
+
+    def teardown_method(self):
+        """Clean up after test."""
+        end_trace()
+
+    @pytest.fixture
+    def app(self):
+        """Create a test FastAPI app with tracing middleware."""
+        from fastapi import FastAPI
+        from test_ai.tracing.middleware import TracingMiddleware
+
+        app = FastAPI()
+        app.add_middleware(TracingMiddleware, service_name="test-service")
+
+        @app.get("/")
+        async def root():
+            return {"message": "ok"}
+
+        @app.get("/health")
+        async def health():
+            return {"status": "healthy"}
+
+        @app.get("/error")
+        async def error_endpoint():
+            raise ValueError("Test error")
+
+        return app
+
+    @pytest.fixture
+    def client(self, app):
+        """Create a test client."""
+        from fastapi.testclient import TestClient
+
+        return TestClient(app, raise_server_exceptions=False)
+
+    def test_middleware_adds_trace_headers(self, client):
+        """Test that middleware adds trace headers to response."""
+        response = client.get("/")
+
+        assert response.status_code == 200
+        assert "X-Trace-ID" in response.headers
+        assert "X-Span-ID" in response.headers
+        assert "traceparent" in response.headers
+
+    def test_middleware_excludes_health_paths(self, client):
+        """Test that health paths are excluded from tracing."""
+        response = client.get("/health")
+
+        assert response.status_code == 200
+        # Health paths should not have trace headers
+        assert "X-Trace-ID" not in response.headers
+
+    def test_middleware_propagates_incoming_trace(self, client):
+        """Test that middleware continues trace from incoming traceparent header."""
+        incoming_trace_id = "0af7651916cd43dd8448eb211c80319c"
+        incoming_span_id = "b7ad6b7169203331"
+        traceparent = f"00-{incoming_trace_id}-{incoming_span_id}-01"
+
+        response = client.get("/", headers={"traceparent": traceparent})
+
+        assert response.status_code == 200
+        # Response should have the same trace ID (propagated)
+        assert response.headers["X-Trace-ID"] == incoming_trace_id
+
+    def test_middleware_handles_exception(self, client):
+        """Test that middleware handles exceptions in request handler."""
+        response = client.get("/error")
+
+        # Should return 500 error
+        assert response.status_code == 500
+
+    def test_middleware_logs_error_on_exception(self, client, caplog):
+        """Test that middleware logs errors when exception occurs."""
+        import logging
+
+        with caplog.at_level(logging.ERROR):
+            client.get("/error")
+
+        # Should have logged the error
+        assert any("Request failed" in record.message for record in caplog.records)
+
+
+# =============================================================================
+# Workflow Step Decorator Tests
+# =============================================================================
+
+
+class TestTraceWorkflowStepDecorator:
+    """Tests for trace_workflow_step decorator."""
+
+    def setup_method(self):
+        """Reset context before each test."""
+        end_trace()
+
+    def teardown_method(self):
+        """Clean up after test."""
+        end_trace()
+
+    def test_decorator_traces_successful_call(self):
+        """Test decorator traces successful function call."""
+        from test_ai.tracing.middleware import trace_workflow_step
+
+        @trace_workflow_step("step_1", "openai", "generate")
+        def my_step():
+            return "result"
+
+        with trace_context("test-workflow") as trace:
+            result = my_step()
+
+        assert result == "result"
+        # Should have root span + step span
+        assert len(trace.spans) == 2
+        step_span = trace.spans[1]
+        assert step_span.name == "openai:generate"
+        assert step_span.attributes["step.id"] == "step_1"
+        assert step_span.attributes["step.type"] == "openai"
+        assert step_span.attributes["step.action"] == "generate"
+        assert step_span.status == "ok"
+
+    def test_decorator_traces_error(self):
+        """Test decorator traces function that raises error."""
+        from test_ai.tracing.middleware import trace_workflow_step
+
+        @trace_workflow_step("step_err", "claude", "analyze")
+        def failing_step():
+            raise ValueError("Step failed")
+
+        with pytest.raises(ValueError, match="Step failed"):
+            with trace_context("test-workflow") as trace:
+                failing_step()
+
+        # Span should be marked as error
+        step_span = trace.spans[1]
+        assert step_span.status == "error"
+
+    def test_decorator_without_active_trace(self):
+        """Test decorator works without active trace (no-op)."""
+        from test_ai.tracing.middleware import trace_workflow_step
+
+        @trace_workflow_step("step_no_trace", "test", "action")
+        def standalone_step():
+            return "standalone"
+
+        # Should work fine without trace context
+        result = standalone_step()
+        assert result == "standalone"
+
+
+class TestTraceAsyncWorkflowStepDecorator:
+    """Tests for trace_async_workflow_step decorator."""
+
+    def setup_method(self):
+        """Reset context before each test."""
+        end_trace()
+
+    def teardown_method(self):
+        """Clean up after test."""
+        end_trace()
+
+    @pytest.mark.asyncio
+    async def test_async_decorator_traces_successful_call(self):
+        """Test async decorator traces successful function call."""
+        from test_ai.tracing.middleware import trace_async_workflow_step
+
+        decorator = await trace_async_workflow_step("async_step", "anthropic", "chat")
+
+        @decorator
+        async def my_async_step():
+            return "async_result"
+
+        with trace_context("async-workflow") as trace:
+            result = await my_async_step()
+
+        assert result == "async_result"
+        # Should have root span + step span
+        assert len(trace.spans) == 2
+        step_span = trace.spans[1]
+        assert step_span.name == "anthropic:chat"
+        assert step_span.attributes["step.id"] == "async_step"
+        assert step_span.status == "ok"
+
+    @pytest.mark.asyncio
+    async def test_async_decorator_traces_error(self):
+        """Test async decorator traces function that raises error."""
+        from test_ai.tracing.middleware import trace_async_workflow_step
+
+        decorator = await trace_async_workflow_step("async_err", "github", "create_pr")
+
+        @decorator
+        async def failing_async_step():
+            raise RuntimeError("Async step failed")
+
+        with pytest.raises(RuntimeError, match="Async step failed"):
+            with trace_context("async-workflow") as trace:
+                await failing_async_step()
+
+        # Span should be marked as error
+        step_span = trace.spans[1]
+        assert step_span.status == "error"
+
+    @pytest.mark.asyncio
+    async def test_async_decorator_without_active_trace(self):
+        """Test async decorator works without active trace (no-op)."""
+        from test_ai.tracing.middleware import trace_async_workflow_step
+
+        decorator = await trace_async_workflow_step("async_no_trace", "test", "action")
+
+        @decorator
+        async def standalone_async_step():
+            return "standalone_async"
+
+        # Should work fine without trace context
+        result = await standalone_async_step()
+        assert result == "standalone_async"
