@@ -521,89 +521,99 @@ def _render_pipeline_result(result, pipeline_name: str, pipelines: dict):
         _render_final_output(result.final_output)
 
 
+def _render_collect_output(output):
+    """Render collect stage output."""
+    if hasattr(output, "source"):
+        st.markdown(f"**Source:** {output.source}")
+        st.caption(f"Collected at: {output.collected_at}")
+        if hasattr(output, "data") and output.data:
+            data = output.data
+            counters = data.get("metrics", {}).get("counters", {})
+            if counters:
+                st.markdown("**Counters:**")
+                cols = st.columns(min(4, len(counters)))
+                for i, (key, value) in enumerate(list(counters.items())[:8]):
+                    cols[i % 4].metric(key.replace("_", " ").title(), value)
+            summary = data.get("summary", {})
+            if summary:
+                st.markdown("**Summary:**")
+                st.json(summary)
+    else:
+        st.json(output if isinstance(output, dict) else str(output))
+
+
+def _render_analyze_output(output):
+    """Render analyze stage output."""
+    if hasattr(output, "severity"):
+        severity_colors = {"info": "blue", "warning": "orange", "critical": "red"}
+        color = severity_colors.get(output.severity, "gray")
+        st.markdown(f"**Severity:** :{color}[{output.severity.upper()}]")
+    if hasattr(output, "findings") and output.findings:
+        st.markdown("**Findings:**")
+        for finding in output.findings:
+            sev = finding.get("severity", "info")
+            icon = {"info": "ℹ️", "warning": "⚠️", "critical": "🚨"}.get(sev, "•")
+            st.markdown(f"{icon} {finding.get('message', '')}")
+    else:
+        st.success("No issues detected")
+
+
+def _render_visualize_output(output):
+    """Render visualize stage output."""
+    if hasattr(output, "charts"):
+        st.markdown(f"**Generated {len(output.charts)} charts**")
+        for chart in output.charts:
+            st.caption(f"• {chart.title} ({chart.chart_type})")
+    if hasattr(output, "streamlit_code") and output.streamlit_code:
+        with st.expander("View Generated Code"):
+            st.code(output.streamlit_code, language="python")
+
+
+def _render_report_output(output):
+    """Render report stage output."""
+    if hasattr(output, "report_type"):
+        st.markdown(f"**Report Type:** {output.report_type}")
+    if hasattr(output, "summary"):
+        st.markdown(output.summary)
+
+
+def _render_alert_output(output):
+    """Render alert stage output."""
+    if hasattr(output, "alerts") and output.alerts:
+        st.markdown(f"**{len(output.alerts)} alerts generated**")
+        for alert in output.alerts:
+            sev = alert.get("severity", "info")
+            icon = {"info": "ℹ️", "warning": "⚠️", "critical": "🚨"}.get(sev, "•")
+            st.markdown(f"{icon} **{alert.get('title', 'Alert')}**: {alert.get('message', '')}")
+    else:
+        st.success("No alerts triggered")
+
+
+def _render_fallback_output(output):
+    """Render fallback for unknown stage types."""
+    if isinstance(output, dict):
+        st.json(output)
+    elif hasattr(output, "to_dict"):
+        st.json(output.to_dict())
+    else:
+        st.text(str(output))
+
+
+_STAGE_RENDERERS = {
+    "collect": _render_collect_output,
+    "analyze": _render_analyze_output,
+    "visualize": _render_visualize_output,
+    "report": _render_report_output,
+    "alert": _render_alert_output,
+}
+
+
 def _render_stage_output(stage):
     """Render individual stage output."""
     output = stage.output
     stage_type = stage.stage.value
-
-    if stage_type == "collect":
-        # CollectedData
-        if hasattr(output, "source"):
-            st.markdown(f"**Source:** {output.source}")
-            st.caption(f"Collected at: {output.collected_at}")
-
-            if hasattr(output, "data") and output.data:
-                data = output.data
-
-                # Show metrics if available
-                metrics = data.get("metrics", {})
-                counters = metrics.get("counters", {})
-                if counters:
-                    st.markdown("**Counters:**")
-                    cols = st.columns(min(4, len(counters)))
-                    for i, (key, value) in enumerate(list(counters.items())[:8]):
-                        cols[i % 4].metric(key.replace("_", " ").title(), value)
-
-                # Show summary if available
-                summary = data.get("summary", {})
-                if summary:
-                    st.markdown("**Summary:**")
-                    st.json(summary)
-        else:
-            st.json(output if isinstance(output, dict) else str(output))
-
-    elif stage_type == "analyze":
-        # AnalysisResult
-        if hasattr(output, "severity"):
-            severity_colors = {"info": "blue", "warning": "orange", "critical": "red"}
-            color = severity_colors.get(output.severity, "gray")
-            st.markdown(f"**Severity:** :{color}[{output.severity.upper()}]")
-
-        if hasattr(output, "findings") and output.findings:
-            st.markdown("**Findings:**")
-            for finding in output.findings:
-                sev = finding.get("severity", "info")
-                icon = {"info": "ℹ️", "warning": "⚠️", "critical": "🚨"}.get(sev, "•")
-                st.markdown(f"{icon} {finding.get('message', '')}")
-        else:
-            st.success("No issues detected")
-
-    elif stage_type == "visualize":
-        # VisualizationResult
-        if hasattr(output, "charts"):
-            st.markdown(f"**Generated {len(output.charts)} charts**")
-            for chart in output.charts:
-                st.caption(f"• {chart.title} ({chart.chart_type})")
-        if hasattr(output, "streamlit_code") and output.streamlit_code:
-            with st.expander("View Generated Code"):
-                st.code(output.streamlit_code, language="python")
-
-    elif stage_type == "report":
-        # ReportResult
-        if hasattr(output, "report_type"):
-            st.markdown(f"**Report Type:** {output.report_type}")
-        if hasattr(output, "summary"):
-            st.markdown(output.summary)
-
-    elif stage_type == "alert":
-        # AlertResult
-        if hasattr(output, "alerts") and output.alerts:
-            st.markdown(f"**{len(output.alerts)} alerts generated**")
-            for alert in output.alerts:
-                sev = alert.get("severity", "info")
-                icon = {"info": "ℹ️", "warning": "⚠️", "critical": "🚨"}.get(sev, "•")
-                st.markdown(f"{icon} **{alert.get('title', 'Alert')}**: {alert.get('message', '')}")
-        else:
-            st.success("No alerts triggered")
-
-    else:
-        # Fallback
-        if isinstance(output, dict):
-            st.json(output)
-        elif hasattr(output, "to_dict"):
-            st.json(output.to_dict())
-        else:
-            st.text(str(output))
+    renderer = _STAGE_RENDERERS.get(stage_type, _render_fallback_output)
+    renderer(output)
 
 
 def _render_final_output(output):

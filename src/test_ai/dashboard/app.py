@@ -367,39 +367,32 @@ def render_logs_page():
         st.info("No logs found. Execute a workflow to generate logs.")
 
 
+_PAGE_RENDERERS = {
+    "Dashboard": render_dashboard_page,
+    "Monitoring": render_monitoring_page,
+    "Agents": render_agents_page,
+    "Metrics": render_metrics_page,
+    "Analytics": render_analytics_page,
+    "Workflows": render_workflows_page,
+    "Prompts": render_prompts_page,
+    "Execute": render_execute_page,
+    "Logs": render_logs_page,
+}
+
+
 def main():
     """Main dashboard application."""
     st.set_page_config(page_title="Gorgon Orchestrator", page_icon="🐍", layout="wide")
 
-    # Initialize session state
     if "page" not in st.session_state:
         st.session_state.page = "Dashboard"
 
-    # Render sidebar and get selected page
     page = render_sidebar()
-
-    # Update session state if changed via sidebar
     st.session_state.page = page
 
-    # Render the selected page
-    if page == "Dashboard":
-        render_dashboard_page()
-    elif page == "Monitoring":
-        render_monitoring_page()
-    elif page == "Agents":
-        render_agents_page()
-    elif page == "Metrics":
-        render_metrics_page()
-    elif page == "Analytics":
-        render_analytics_page()
-    elif page == "Workflows":
-        render_workflows_page()
-    elif page == "Prompts":
-        render_prompts_page()
-    elif page == "Execute":
-        render_execute_page()
-    elif page == "Logs":
-        render_logs_page()
+    renderer = _PAGE_RENDERERS.get(page)
+    if renderer:
+        renderer()
 
 
 def run_dashboard():
