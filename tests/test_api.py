@@ -26,8 +26,13 @@ def backend():
 @pytest.fixture
 def client(backend):
     """Create a test client with mocked managers."""
+    from test_ai.state.migrations import run_migrations as actual_run_migrations
+
+    # Run actual migrations so tables exist
+    actual_run_migrations(backend)
+
     with patch("test_ai.api.get_database", return_value=backend):
-        with patch("test_ai.api.run_migrations", return_value=[]):
+        with patch("test_ai.api.run_migrations", return_value=[]):  # Skip in lifespan since we ran above
             with patch(
                 "test_ai.scheduler.schedule_manager.WorkflowEngine"
             ) as mock_sched_engine:
@@ -579,3 +584,432 @@ class TestRateLimiting:
         )
         assert response.status_code == 429
         assert "Retry-After" in response.headers
+
+
+# =============================================================================
+# Workflow Versioning API Tests
+# =============================================================================
+
+
+SAMPLE_WORKFLOW_V1 = """name: test-workflow
+version: 1.0.0
+description: Test workflow version 1
+
+steps:
+  - id: step1
+    type: shell
+    params:
+      command: echo "Hello"
+"""
+
+SAMPLE_WORKFLOW_V2 = """name: test-workflow
+version: 2.0.0
+description: Test workflow version 2 with changes
+
+steps:
+  - id: step1
+    type: shell
+    params:
+      command: echo "Hello World"
+  - id: step2
+    type: shell
+    params:
+      command: echo "New step"
+"""
+
+
+class TestWorkflowVersioningAPI:
+    """Tests for workflow versioning API endpoints."""
+
+    def test_save_version(self, client, auth_headers):
+        """Can save a new workflow version."""
+        response = client.post(
+            "/v1/workflows/test-workflow/versions",
+            json={
+                "content": SAMPLE_WORKFLOW_V1,
+                "version": "1.0.0",
+                "description": "Initial version",
+            },
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["workflow_name"] == "test-workflow"
+        assert data["version"] == "1.0.0"
+        assert data["is_active"] is True
+
+    def test_save_version_auto_bump(self, client, auth_headers):
+        """Version auto-bumps when not specified."""
+        # Save v1
+        client.post(
+            "/v1/workflows/test-workflow/versions",
+            json={"content": SAMPLE_WORKFLOW_V1, "version": "1.0.0"},
+            headers=auth_headers,
+        )
+
+        # Save v2 without explicit version
+        response = client.post(
+            "/v1/workflows/test-workflow/versions",
+            json={"content": SAMPLE_WORKFLOW_V2},
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["version"] == "1.0.1"  # Auto-bumped patch
+
+    def test_save_version_duplicate_content_returns_existing(self, client, auth_headers):
+        """Duplicate content returns existing version."""
+        # Save initial
+        client.post(
+            "/v1/workflows/test-workflow/versions",
+            json={"content": SAMPLE_WORKFLOW_V1, "version": "1.0.0"},
+            headers=auth_headers,
+        )
+
+        # Save same content
+        response = client.post(
+            "/v1/workflows/test-workflow/versions",
+            json={"content": SAMPLE_WORKFLOW_V1},
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["version"] == "1.0.0"
+
+    def test_save_version_existing_version_fails(self, client, auth_headers):
+        """Saving different content with existing version fails."""
+        client.post(
+            "/v1/workflows/test-workflow/versions",
+            json={"content": SAMPLE_WORKFLOW_V1, "version": "1.0.0"},
+            headers=auth_headers,
+        )
+
+        response = client.post(
+            "/v1/workflows/test-workflow/versions",
+            json={"content": SAMPLE_WORKFLOW_V2, "version": "1.0.0"},
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 400
+        assert "already exists" in response.json()["error"]["message"]
+
+    def test_save_version_invalid_yaml_fails(self, client, auth_headers):
+        """Invalid YAML content returns error."""
+        response = client.post(
+            "/v1/workflows/test-workflow/versions",
+            json={"content": "invalid: yaml: content:"},
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 400
+        assert "Invalid YAML" in response.json()["error"]["message"]
+
+    def test_save_version_requires_auth(self, client):
+        """Save version requires authentication."""
+        response = client.post(
+            "/v1/workflows/test-workflow/versions",
+            json={"content": SAMPLE_WORKFLOW_V1},
+        )
+
+        assert response.status_code == 401
+
+    def test_list_versions(self, client, auth_headers):
+        """Can list all versions of a workflow."""
+        client.post(
+            "/v1/workflows/test-workflow/versions",
+            json={"content": SAMPLE_WORKFLOW_V1, "version": "1.0.0"},
+            headers=auth_headers,
+        )
+        client.post(
+            "/v1/workflows/test-workflow/versions",
+            json={"content": SAMPLE_WORKFLOW_V2, "version": "2.0.0"},
+            headers=auth_headers,
+        )
+
+        response = client.get(
+            "/v1/workflows/test-workflow/versions",
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 2
+        versions = [v["version"] for v in data]
+        assert "1.0.0" in versions
+        assert "2.0.0" in versions
+
+    def test_list_versions_empty(self, client, auth_headers):
+        """List versions returns empty list for unknown workflow."""
+        response = client.get(
+            "/v1/workflows/nonexistent/versions",
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 200
+        assert response.json() == []
+
+    def test_list_versions_pagination(self, client, auth_headers):
+        """List versions supports pagination."""
+        for i in range(5):
+            client.post(
+                "/v1/workflows/test-workflow/versions",
+                json={"content": f"name: test\nversion: 1.0.{i}", "version": f"1.0.{i}"},
+                headers=auth_headers,
+            )
+
+        response = client.get(
+            "/v1/workflows/test-workflow/versions?limit=2&offset=0",
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 200
+        assert len(response.json()) == 2
+
+    def test_list_versions_requires_auth(self, client):
+        """List versions requires authentication."""
+        response = client.get("/v1/workflows/test-workflow/versions")
+        assert response.status_code == 401
+
+    def test_get_version(self, client, auth_headers):
+        """Can get a specific version."""
+        client.post(
+            "/v1/workflows/test-workflow/versions",
+            json={"content": SAMPLE_WORKFLOW_V1, "version": "1.0.0"},
+            headers=auth_headers,
+        )
+
+        response = client.get(
+            "/v1/workflows/test-workflow/versions/1.0.0",
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["version"] == "1.0.0"
+        assert data["content"] == SAMPLE_WORKFLOW_V1
+
+    def test_get_version_not_found(self, client, auth_headers):
+        """Get nonexistent version returns 404."""
+        response = client.get(
+            "/v1/workflows/test-workflow/versions/99.0.0",
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 404
+
+    def test_get_version_requires_auth(self, client):
+        """Get version requires authentication."""
+        response = client.get("/v1/workflows/test-workflow/versions/1.0.0")
+        assert response.status_code == 401
+
+    def test_activate_version(self, client, auth_headers):
+        """Can activate a specific version."""
+        client.post(
+            "/v1/workflows/test-workflow/versions",
+            json={"content": SAMPLE_WORKFLOW_V1, "version": "1.0.0"},
+            headers=auth_headers,
+        )
+        client.post(
+            "/v1/workflows/test-workflow/versions",
+            json={"content": SAMPLE_WORKFLOW_V2, "version": "2.0.0"},
+            headers=auth_headers,
+        )
+
+        response = client.post(
+            "/v1/workflows/test-workflow/versions/1.0.0/activate",
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "success"
+        assert response.json()["active_version"] == "1.0.0"
+
+    def test_activate_version_not_found(self, client, auth_headers):
+        """Activate nonexistent version returns 404."""
+        response = client.post(
+            "/v1/workflows/test-workflow/versions/99.0.0/activate",
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 404
+
+    def test_activate_version_requires_auth(self, client):
+        """Activate version requires authentication."""
+        response = client.post("/v1/workflows/test-workflow/versions/1.0.0/activate")
+        assert response.status_code == 401
+
+    def test_rollback(self, client, auth_headers):
+        """Can rollback to previous version."""
+        client.post(
+            "/v1/workflows/test-workflow/versions",
+            json={"content": SAMPLE_WORKFLOW_V1, "version": "1.0.0"},
+            headers=auth_headers,
+        )
+        client.post(
+            "/v1/workflows/test-workflow/versions",
+            json={"content": SAMPLE_WORKFLOW_V2, "version": "2.0.0"},
+            headers=auth_headers,
+        )
+
+        response = client.post(
+            "/v1/workflows/test-workflow/rollback",
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["rolled_back_to"] == "1.0.0"
+
+    def test_rollback_no_previous_version(self, client, auth_headers):
+        """Rollback with single version returns error."""
+        client.post(
+            "/v1/workflows/test-workflow/versions",
+            json={"content": SAMPLE_WORKFLOW_V1, "version": "1.0.0"},
+            headers=auth_headers,
+        )
+
+        response = client.post(
+            "/v1/workflows/test-workflow/rollback",
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 400
+        assert "No previous version" in response.json()["error"]["message"]
+
+    def test_rollback_requires_auth(self, client):
+        """Rollback requires authentication."""
+        response = client.post("/v1/workflows/test-workflow/rollback")
+        assert response.status_code == 401
+
+    def test_compare_versions(self, client, auth_headers):
+        """Can compare two versions."""
+        client.post(
+            "/v1/workflows/test-workflow/versions",
+            json={"content": SAMPLE_WORKFLOW_V1, "version": "1.0.0"},
+            headers=auth_headers,
+        )
+        client.post(
+            "/v1/workflows/test-workflow/versions",
+            json={"content": SAMPLE_WORKFLOW_V2, "version": "2.0.0"},
+            headers=auth_headers,
+        )
+
+        response = client.get(
+            "/v1/workflows/test-workflow/versions/compare?from_version=1.0.0&to_version=2.0.0",
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["from_version"] == "1.0.0"
+        assert data["to_version"] == "2.0.0"
+        assert data["has_changes"] is True
+        assert "unified_diff" in data
+
+    def test_compare_versions_not_found(self, client, auth_headers):
+        """Compare with nonexistent version returns 400."""
+        client.post(
+            "/v1/workflows/test-workflow/versions",
+            json={"content": SAMPLE_WORKFLOW_V1, "version": "1.0.0"},
+            headers=auth_headers,
+        )
+
+        response = client.get(
+            "/v1/workflows/test-workflow/versions/compare?from_version=1.0.0&to_version=99.0.0",
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 400
+
+    def test_compare_versions_requires_auth(self, client):
+        """Compare versions requires authentication."""
+        response = client.get(
+            "/v1/workflows/test-workflow/versions/compare?from_version=1.0.0&to_version=2.0.0"
+        )
+        assert response.status_code == 401
+
+    def test_delete_version(self, client, auth_headers):
+        """Can delete a non-active version."""
+        client.post(
+            "/v1/workflows/test-workflow/versions",
+            json={"content": SAMPLE_WORKFLOW_V1, "version": "1.0.0"},
+            headers=auth_headers,
+        )
+        client.post(
+            "/v1/workflows/test-workflow/versions",
+            json={"content": SAMPLE_WORKFLOW_V2, "version": "2.0.0"},
+            headers=auth_headers,
+        )
+
+        response = client.delete(
+            "/v1/workflows/test-workflow/versions/1.0.0",
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "success"
+
+        # Verify deleted
+        get_response = client.get(
+            "/v1/workflows/test-workflow/versions/1.0.0",
+            headers=auth_headers,
+        )
+        assert get_response.status_code == 404
+
+    def test_delete_active_version_fails(self, client, auth_headers):
+        """Cannot delete active version."""
+        client.post(
+            "/v1/workflows/test-workflow/versions",
+            json={"content": SAMPLE_WORKFLOW_V1, "version": "1.0.0"},
+            headers=auth_headers,
+        )
+
+        response = client.delete(
+            "/v1/workflows/test-workflow/versions/1.0.0",
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 400
+        assert "Cannot delete active version" in response.json()["error"]["message"]
+
+    def test_delete_version_requires_auth(self, client):
+        """Delete version requires authentication."""
+        response = client.delete("/v1/workflows/test-workflow/versions/1.0.0")
+        assert response.status_code == 401
+
+    def test_list_versioned_workflows(self, client, auth_headers):
+        """Can list all workflows with versions."""
+        client.post(
+            "/v1/workflows/workflow1/versions",
+            json={"content": SAMPLE_WORKFLOW_V1, "version": "1.0.0"},
+            headers=auth_headers,
+        )
+        client.post(
+            "/v1/workflows/workflow2/versions",
+            json={"content": SAMPLE_WORKFLOW_V2, "version": "2.0.0"},
+            headers=auth_headers,
+        )
+
+        response = client.get("/v1/workflow-versions", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 2
+        names = [w["workflow_name"] for w in data]
+        assert "workflow1" in names
+        assert "workflow2" in names
+
+    def test_list_versioned_workflows_empty(self, client, auth_headers):
+        """List versioned workflows returns empty when none exist."""
+        response = client.get("/v1/workflow-versions", headers=auth_headers)
+
+        assert response.status_code == 200
+        assert response.json() == []
+
+    def test_list_versioned_workflows_requires_auth(self, client):
+        """List versioned workflows requires authentication."""
+        response = client.get("/v1/workflow-versions")
+        assert response.status_code == 401

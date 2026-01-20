@@ -937,6 +937,32 @@ def list_workflow_versions(
     return [v.model_dump(mode="json") for v in versions]
 
 
+@v1_router.get("/workflows/{workflow_name}/versions/compare", responses=CRUD_RESPONSES)
+def compare_workflow_versions(
+    workflow_name: str,
+    from_version: str,
+    to_version: str,
+    authorization: Optional[str] = Header(None),
+):
+    """Compare two workflow versions."""
+    verify_auth(authorization)
+
+    try:
+        diff = version_manager.compare_versions(workflow_name, from_version, to_version)
+        return {
+            "workflow_name": workflow_name,
+            "from_version": diff.from_version,
+            "to_version": diff.to_version,
+            "has_changes": diff.has_changes,
+            "added_lines": diff.added_lines,
+            "removed_lines": diff.removed_lines,
+            "changed_sections": diff.changed_sections,
+            "unified_diff": diff.unified_diff,
+        }
+    except ValueError as e:
+        raise bad_request(str(e))
+
+
 @v1_router.get("/workflows/{workflow_name}/versions/{version}", responses=CRUD_RESPONSES)
 def get_workflow_version(
     workflow_name: str,
@@ -1021,32 +1047,6 @@ def rollback_workflow(
         "workflow_name": workflow_name,
         "rolled_back_to": wv.version,
     }
-
-
-@v1_router.get("/workflows/{workflow_name}/versions/compare", responses=CRUD_RESPONSES)
-def compare_workflow_versions(
-    workflow_name: str,
-    from_version: str,
-    to_version: str,
-    authorization: Optional[str] = Header(None),
-):
-    """Compare two workflow versions."""
-    verify_auth(authorization)
-
-    try:
-        diff = version_manager.compare_versions(workflow_name, from_version, to_version)
-        return {
-            "workflow_name": workflow_name,
-            "from_version": diff.from_version,
-            "to_version": diff.to_version,
-            "has_changes": diff.has_changes,
-            "added_lines": diff.added_lines,
-            "removed_lines": diff.removed_lines,
-            "changed_sections": diff.changed_sections,
-            "unified_diff": diff.unified_diff,
-        }
-    except ValueError as e:
-        raise not_found("Version", str(e))
 
 
 @v1_router.delete(
