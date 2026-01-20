@@ -1,7 +1,7 @@
 """YAML-Based Workflow Definitions.
 
 Load, validate, and execute multi-agent workflows from YAML configuration files.
-Supports parallel execution and scheduling.
+Supports parallel execution, scheduling, and version control.
 """
 
 from .loader import (
@@ -21,6 +21,14 @@ from .parallel import (
     ParallelResult,
     execute_steps_parallel,
 )
+from .versioning import (
+    SemanticVersion,
+    WorkflowVersion,
+    VersionDiff,
+    compute_content_hash,
+    compare_versions,
+)
+from .version_manager import WorkflowVersionManager
 
 __all__ = [
     "WorkflowConfig",
@@ -40,4 +48,11 @@ __all__ = [
     "ParallelTask",
     "ParallelResult",
     "execute_steps_parallel",
+    # Versioning
+    "SemanticVersion",
+    "WorkflowVersion",
+    "VersionDiff",
+    "compute_content_hash",
+    "compare_versions",
+    "WorkflowVersionManager",
 ]

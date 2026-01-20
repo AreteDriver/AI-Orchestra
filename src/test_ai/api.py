@@ -22,6 +22,7 @@ from test_ai.auth import create_access_token, verify_token
 from test_ai.config import get_settings, configure_logging
 from test_ai.orchestrator import WorkflowEngine, Workflow
 from test_ai.prompts import PromptTemplateManager, PromptTemplate
+from test_ai.workflow import WorkflowVersionManager
 from test_ai.api_clients import OpenAIClient
 from test_ai.scheduler import (
     ScheduleManager,
@@ -77,6 +78,7 @@ limiter = Limiter(key_func=get_remote_address)
 schedule_manager: ScheduleManager | None = None
 webhook_manager: WebhookManager | None = None
 job_manager: JobManager | None = None
+version_manager: WorkflowVersionManager | None = None
 
 # Application state for health checks and graceful shutdown
 _app_state = {
@@ -109,7 +111,7 @@ def _handle_shutdown_signal(signum, frame):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage component lifecycles with graceful shutdown."""
-    global schedule_manager, webhook_manager, job_manager
+    global schedule_manager, webhook_manager, job_manager, version_manager
 
     # Reset application state at startup
     _app_state["ready"] = False
@@ -149,6 +151,16 @@ async def lifespan(app: FastAPI):
     schedule_manager = ScheduleManager(backend=backend)
     webhook_manager = WebhookManager(backend=backend)
     job_manager = JobManager(backend=backend)
+    version_manager = WorkflowVersionManager(backend=backend)
+
+    # Migrate existing workflows (one-time)
+    try:
+        workflows_dir = settings.workflows_dir
+        migrated = version_manager.migrate_existing_workflows(workflows_dir)
+        if migrated:
+            logger.info(f"Migrated {len(migrated)} existing workflows to version control")
+    except Exception as e:
+        logger.warning(f"Workflow migration skipped: {e}")
 
     schedule_manager.start()
 
@@ -888,6 +900,178 @@ def cleanup_jobs(max_age_hours: int = 24, authorization: Optional[str] = Header(
     verify_auth(authorization)
     deleted = job_manager.cleanup_old_jobs(max_age_hours)
     return {"status": "success", "deleted": deleted}
+
+
+# =============================================================================
+# Workflow Version Endpoints
+# =============================================================================
+
+
+class WorkflowVersionRequest(BaseModel):
+    """Request to save a workflow version."""
+
+    content: str
+    version: Optional[str] = None
+    description: Optional[str] = None
+    author: Optional[str] = None
+    activate: bool = True
+
+
+class VersionCompareRequest(BaseModel):
+    """Request to compare two versions."""
+
+    from_version: str
+    to_version: str
+
+
+@v1_router.get("/workflows/{workflow_name}/versions", responses=AUTH_RESPONSES)
+def list_workflow_versions(
+    workflow_name: str,
+    limit: int = 50,
+    offset: int = 0,
+    authorization: Optional[str] = Header(None),
+):
+    """List all versions of a workflow."""
+    verify_auth(authorization)
+    versions = version_manager.list_versions(workflow_name, limit=limit, offset=offset)
+    return [v.model_dump(mode="json") for v in versions]
+
+
+@v1_router.get("/workflows/{workflow_name}/versions/{version}", responses=CRUD_RESPONSES)
+def get_workflow_version(
+    workflow_name: str,
+    version: str,
+    authorization: Optional[str] = Header(None),
+):
+    """Get a specific workflow version."""
+    verify_auth(authorization)
+    wv = version_manager.get_version(workflow_name, version)
+    if not wv:
+        raise not_found("Version", f"{workflow_name}@{version}")
+    return wv.model_dump(mode="json")
+
+
+@v1_router.post("/workflows/{workflow_name}/versions", responses=CRUD_RESPONSES)
+def save_workflow_version(
+    workflow_name: str,
+    request: WorkflowVersionRequest,
+    authorization: Optional[str] = Header(None),
+):
+    """Save a new workflow version."""
+    verify_auth(authorization)
+
+    try:
+        wv = version_manager.save_version(
+            workflow_name=workflow_name,
+            content=request.content,
+            version=request.version,
+            description=request.description,
+            author=request.author,
+            activate=request.activate,
+        )
+        return {
+            "status": "success",
+            "workflow_name": wv.workflow_name,
+            "version": wv.version,
+            "is_active": wv.is_active,
+        }
+    except ValueError as e:
+        raise bad_request(str(e))
+
+
+@v1_router.post(
+    "/workflows/{workflow_name}/versions/{version}/activate", responses=CRUD_RESPONSES
+)
+def activate_workflow_version(
+    workflow_name: str,
+    version: str,
+    authorization: Optional[str] = Header(None),
+):
+    """Activate a specific workflow version."""
+    verify_auth(authorization)
+
+    try:
+        version_manager.set_active(workflow_name, version)
+        return {
+            "status": "success",
+            "workflow_name": workflow_name,
+            "active_version": version,
+        }
+    except ValueError:
+        raise not_found("Version", f"{workflow_name}@{version}")
+
+
+@v1_router.post("/workflows/{workflow_name}/rollback", responses=CRUD_RESPONSES)
+def rollback_workflow(
+    workflow_name: str,
+    authorization: Optional[str] = Header(None),
+):
+    """Rollback to the previous workflow version."""
+    verify_auth(authorization)
+
+    wv = version_manager.rollback(workflow_name)
+    if not wv:
+        raise bad_request(
+            "No previous version to rollback to",
+            {"workflow_name": workflow_name},
+        )
+
+    return {
+        "status": "success",
+        "workflow_name": workflow_name,
+        "rolled_back_to": wv.version,
+    }
+
+
+@v1_router.get("/workflows/{workflow_name}/versions/compare", responses=CRUD_RESPONSES)
+def compare_workflow_versions(
+    workflow_name: str,
+    from_version: str,
+    to_version: str,
+    authorization: Optional[str] = Header(None),
+):
+    """Compare two workflow versions."""
+    verify_auth(authorization)
+
+    try:
+        diff = version_manager.compare_versions(workflow_name, from_version, to_version)
+        return {
+            "workflow_name": workflow_name,
+            "from_version": diff.from_version,
+            "to_version": diff.to_version,
+            "has_changes": diff.has_changes,
+            "added_lines": diff.added_lines,
+            "removed_lines": diff.removed_lines,
+            "changed_sections": diff.changed_sections,
+            "unified_diff": diff.unified_diff,
+        }
+    except ValueError as e:
+        raise not_found("Version", str(e))
+
+
+@v1_router.delete(
+    "/workflows/{workflow_name}/versions/{version}", responses=CRUD_RESPONSES
+)
+def delete_workflow_version(
+    workflow_name: str,
+    version: str,
+    authorization: Optional[str] = Header(None),
+):
+    """Delete a workflow version (cannot delete active version)."""
+    verify_auth(authorization)
+
+    try:
+        version_manager.delete_version(workflow_name, version)
+        return {"status": "success"}
+    except ValueError as e:
+        raise bad_request(str(e))
+
+
+@v1_router.get("/workflow-versions", responses=AUTH_RESPONSES)
+def list_versioned_workflows(authorization: Optional[str] = Header(None)):
+    """List all workflows with version information."""
+    verify_auth(authorization)
+    return version_manager.list_workflows()
 
 
 @app.get("/health")

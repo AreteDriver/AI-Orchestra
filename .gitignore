@@ -36,6 +36,7 @@ ENV/
 logs/
 *.log
 *.sql
+!migrations/*.sql
 *.sqlite
 *.db
 
