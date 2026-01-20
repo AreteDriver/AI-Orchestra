@@ -13,14 +13,13 @@ import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from unittest.mock import MagicMock, patch
 
 import pytest
 
 sys.path.insert(0, "src")
 
-from test_ai.resilience.bulkhead import Bulkhead, BulkheadFull, get_bulkhead
-from test_ai.resilience.fallback import FallbackChain, FallbackConfig, fallback
+from test_ai.resilience.bulkhead import Bulkhead, BulkheadFull
+from test_ai.resilience.fallback import FallbackChain
 from test_ai.ratelimit.limiter import TokenBucketLimiter, RateLimitConfig
 from test_ai.security.brute_force import BruteForceProtection, BruteForceConfig
 

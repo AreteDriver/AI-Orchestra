@@ -3,7 +3,6 @@
 import os
 import sys
 import tempfile
-from datetime import datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -90,7 +89,6 @@ class TestWebhookDeliveryManager:
 
     def test_successful_delivery(self, manager):
         """Successful delivery is recorded correctly."""
-        import requests
 
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -268,7 +266,6 @@ class TestAsyncDelivery:
     @pytest.mark.asyncio
     async def test_async_successful_delivery(self, manager):
         """Async delivery works correctly."""
-        import httpx
         from unittest.mock import AsyncMock
 
         mock_response = MagicMock()

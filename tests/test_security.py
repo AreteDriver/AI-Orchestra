@@ -1,12 +1,8 @@
 """Tests for security patterns (request limits and brute force protection)."""
 
-import asyncio
 import sys
-import time
-from unittest.mock import MagicMock, AsyncMock
 
 import pytest
-from starlette.requests import Request
 from starlette.testclient import TestClient
 from fastapi import FastAPI
 

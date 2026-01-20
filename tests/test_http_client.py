@@ -213,7 +213,7 @@ class TestIntegrationWithWebhook:
                         "test_ai.webhooks.webhook_delivery.get_sync_client",
                         return_value=mock_client,
                     ):
-                        delivery = manager.deliver(
+                        manager.deliver(
                             url="https://example.com/webhook",
                             payload={"event": "test"},
                         )

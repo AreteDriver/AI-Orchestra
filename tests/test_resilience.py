@@ -1,10 +1,8 @@
 """Tests for resilience patterns (bulkhead and fallback)."""
 
-import asyncio
 import sys
 import threading
 import time
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -23,7 +21,6 @@ from test_ai.resilience.fallback import (
 )
 from test_ai.resilience.concurrency import (
     ConcurrencyLimiter,
-    ConcurrencyStats,
     get_limiter,
     limit_concurrency,
 )

@@ -6,14 +6,12 @@ for all external API calls. Each provider has configured limits.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from functools import wraps
 from typing import Any, Callable, TypeVar
 
 from test_ai.ratelimit.provider import get_provider_limiter
 from test_ai.resilience.bulkhead import get_bulkhead
-from test_ai.resilience.concurrency import get_limiter
 
 logger = logging.getLogger(__name__)
 

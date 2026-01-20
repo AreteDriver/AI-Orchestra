@@ -7,11 +7,9 @@ Tests for:
 - API client resilience (rate limiting + bulkhead)
 """
 
-import asyncio
 import os
 import sys
 import tempfile
-import time
 from unittest.mock import MagicMock, patch
 
 import pytest

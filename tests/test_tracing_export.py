@@ -2,11 +2,8 @@
 
 import sys
 import time
-import json
-from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 sys.path.insert(0, "src")
 
