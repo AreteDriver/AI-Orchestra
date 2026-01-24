@@ -12,7 +12,7 @@ import pytest
 sys.path.insert(0, "src")
 
 from test_ai.state.backends import SQLiteBackend
-from test_ai.jobs.job_manager import JobManager, JobStatus
+from test_ai.jobs.job_manager import Job, JobManager, JobStatus
 
 
 class TestJobManager:
@@ -203,8 +203,10 @@ class TestJobManager:
 
     def test_delete_running_job_fails(self, manager):
         """delete_job() returns False for running job."""
-        job = manager.submit("test-workflow")
-        job.status = JobStatus.RUNNING
+        # Create job directly with RUNNING status to avoid race condition
+        # with the async executor that would complete it immediately
+        job = Job(workflow_id="test-workflow", status=JobStatus.RUNNING)
+        manager._jobs[job.id] = job
         manager._save_job(job)
 
         result = manager.delete_job(job.id)
