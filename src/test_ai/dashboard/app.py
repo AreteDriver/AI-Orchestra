@@ -16,6 +16,9 @@ from test_ai.dashboard.monitoring_pages import (
     render_system_status,
 )
 
+# Import ops scorecard page
+from test_ai.dashboard.ops_scorecard import render_ops_scorecard_page
+
 
 # Initialize components
 @st.cache_resource
@@ -42,6 +45,7 @@ def render_sidebar():
 
     pages = {
         "Dashboard": "📊",
+        "Ops Scorecard": "🎯",
         "Monitoring": "🔴",
         "Agents": "🤖",
         "Metrics": "📈",
@@ -369,6 +373,7 @@ def render_logs_page():
 
 _PAGE_RENDERERS = {
     "Dashboard": render_dashboard_page,
+    "Ops Scorecard": render_ops_scorecard_page,
     "Monitoring": render_monitoring_page,
     "Agents": render_agents_page,
     "Metrics": render_metrics_page,

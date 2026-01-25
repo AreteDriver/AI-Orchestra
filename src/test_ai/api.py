@@ -38,6 +38,13 @@ from test_ai.jobs import (
     JobManager,
     JobStatus,
 )
+from test_ai.ops import (
+    OpsEventManager,
+    OpsEvent,
+    WeeklyAgg,
+    ProjectType,
+    ArtifactType,
+)
 from test_ai.state import (
     get_database,
     run_migrations,
@@ -81,6 +88,7 @@ schedule_manager: ScheduleManager | None = None
 webhook_manager: WebhookManager | None = None
 job_manager: JobManager | None = None
 version_manager: WorkflowVersionManager | None = None
+ops_manager: OpsEventManager | None = None
 
 # Application state for health checks and graceful shutdown
 _app_state = {
@@ -113,7 +121,7 @@ def _handle_shutdown_signal(signum, frame):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage component lifecycles with graceful shutdown."""
-    global schedule_manager, webhook_manager, job_manager, version_manager
+    global schedule_manager, webhook_manager, job_manager, version_manager, ops_manager
 
     # Reset application state at startup
     _app_state["ready"] = False
@@ -154,6 +162,7 @@ async def lifespan(app: FastAPI):
     webhook_manager = WebhookManager(backend=backend)
     job_manager = JobManager(backend=backend)
     version_manager = WorkflowVersionManager(backend=backend)
+    ops_manager = OpsEventManager(backend=backend)
 
     # Migrate existing workflows (one-time)
     try:
@@ -1227,6 +1236,242 @@ def list_versioned_workflows(authorization: Optional[str] = Header(None)):
     """List all workflows with version information."""
     verify_auth(authorization)
     return version_manager.list_workflows()
+
+
+# =============================================================================
+# AI Ops Scorecard Endpoints
+# =============================================================================
+
+
+class OpsEventCreateRequest(BaseModel):
+    """Request to create an ops event."""
+
+    session_id: str
+    project: Optional[str] = "other"
+    artifact: bool = False
+    artifact_type: Optional[str] = None
+    reusable: bool = False
+    decision_closed: bool = False
+    execution_done: bool = False
+    minutes_saved: int = 0
+    loop: bool = False
+    impact_career: int = 0
+    impact_legal: int = 0
+    impact_revenue: int = 0
+
+
+class OpsEventUpdateRequest(BaseModel):
+    """Request to update an ops event."""
+
+    project: Optional[str] = None
+    artifact: Optional[bool] = None
+    artifact_type: Optional[str] = None
+    reusable: Optional[bool] = None
+    decision_closed: Optional[bool] = None
+    execution_done: Optional[bool] = None
+    minutes_saved: Optional[int] = None
+    loop: Optional[bool] = None
+    impact_career: Optional[int] = None
+    impact_legal: Optional[int] = None
+    impact_revenue: Optional[int] = None
+
+
+class AggregateRequest(BaseModel):
+    """Request to trigger weekly aggregation."""
+
+    week_start: str
+    sessions_count: Optional[int] = None
+
+
+@v1_router.post("/ops-events", responses=CRUD_RESPONSES)
+def create_ops_event(
+    request: OpsEventCreateRequest,
+    authorization: Optional[str] = Header(None),
+):
+    """Create a new ops event for a session."""
+    verify_auth(authorization)
+
+    try:
+        event = OpsEvent(
+            session_id=request.session_id,
+            project=request.project or "other",
+            artifact=request.artifact,
+            artifact_type=request.artifact_type,
+            reusable=request.reusable,
+            decision_closed=request.decision_closed,
+            execution_done=request.execution_done,
+            minutes_saved=request.minutes_saved,
+            loop=request.loop,
+            impact_career=request.impact_career,
+            impact_legal=request.impact_legal,
+            impact_revenue=request.impact_revenue,
+        )
+        created = ops_manager.create_ops_event(event)
+        return {
+            "status": "success",
+            "event_id": created.id,
+            "session_id": created.session_id,
+        }
+    except ValueError as e:
+        raise bad_request(str(e))
+
+
+@v1_router.get("/ops-events", responses=AUTH_RESPONSES)
+def list_ops_events(
+    week_start: Optional[str] = None,
+    project: Optional[str] = None,
+    limit: int = 100,
+    authorization: Optional[str] = Header(None),
+):
+    """List ops events with optional filtering.
+
+    Args:
+        week_start: Filter to events in week starting on this date (YYYY-MM-DD)
+        project: Filter to specific project
+        limit: Maximum number of events to return
+    """
+    verify_auth(authorization)
+
+    from datetime import date as date_type
+
+    week_date = None
+    if week_start:
+        try:
+            week_date = date_type.fromisoformat(week_start)
+        except ValueError:
+            raise bad_request(f"Invalid date format: {week_start}. Use YYYY-MM-DD.")
+
+    project_type = None
+    if project:
+        try:
+            project_type = ProjectType(project)
+        except ValueError:
+            raise bad_request(
+                f"Invalid project: {project}",
+                {"valid_projects": [p.value for p in ProjectType]},
+            )
+
+    events = ops_manager.list_ops_events(
+        week_start=week_date,
+        project=project_type,
+        limit=limit,
+    )
+    return [e.model_dump(mode="json") for e in events]
+
+
+@v1_router.get("/ops-events/{event_id}", responses=CRUD_RESPONSES)
+def get_ops_event(event_id: str, authorization: Optional[str] = Header(None)):
+    """Get a specific ops event."""
+    verify_auth(authorization)
+
+    event = ops_manager.get_ops_event(event_id)
+    if not event:
+        raise not_found("OpsEvent", event_id)
+
+    return event.model_dump(mode="json")
+
+
+@v1_router.patch("/ops-events/{event_id}", responses=CRUD_RESPONSES)
+def update_ops_event(
+    event_id: str,
+    request: OpsEventUpdateRequest,
+    authorization: Optional[str] = Header(None),
+):
+    """Update an existing ops event."""
+    verify_auth(authorization)
+
+    # Build updates dict from non-None fields
+    updates = {k: v for k, v in request.model_dump().items() if v is not None}
+
+    if not updates:
+        raise bad_request("No fields to update")
+
+    try:
+        updated = ops_manager.update_ops_event(event_id, updates)
+        if not updated:
+            raise not_found("OpsEvent", event_id)
+        return updated.model_dump(mode="json")
+    except ValueError as e:
+        raise bad_request(str(e))
+
+
+@v1_router.delete("/ops-events/{event_id}", responses=CRUD_RESPONSES)
+def delete_ops_event(event_id: str, authorization: Optional[str] = Header(None)):
+    """Delete an ops event."""
+    verify_auth(authorization)
+
+    if ops_manager.delete_ops_event(event_id):
+        return {"status": "success"}
+
+    raise not_found("OpsEvent", event_id)
+
+
+@v1_router.get("/ops/weekly", responses=AUTH_RESPONSES)
+def list_weekly_aggregates(
+    limit: int = 12,
+    authorization: Optional[str] = Header(None),
+):
+    """List recent weekly aggregates."""
+    verify_auth(authorization)
+    aggregates = ops_manager.list_weekly_aggregates(limit=limit)
+    return [a.model_dump(mode="json") for a in aggregates]
+
+
+@v1_router.get("/ops/weekly/{week_start}", responses=CRUD_RESPONSES)
+def get_weekly_aggregate(week_start: str, authorization: Optional[str] = Header(None)):
+    """Get a specific weekly aggregate."""
+    verify_auth(authorization)
+
+    from datetime import date as date_type
+
+    try:
+        week_date = date_type.fromisoformat(week_start)
+    except ValueError:
+        raise bad_request(f"Invalid date format: {week_start}. Use YYYY-MM-DD.")
+
+    agg = ops_manager.get_weekly_aggregate(week_date)
+    if not agg:
+        raise not_found("WeeklyAggregate", week_start)
+
+    return agg.model_dump(mode="json")
+
+
+@v1_router.post("/ops/aggregate", responses=CRUD_RESPONSES)
+def trigger_weekly_aggregate(
+    request: AggregateRequest,
+    authorization: Optional[str] = Header(None),
+):
+    """Trigger weekly aggregation for a specific week."""
+    verify_auth(authorization)
+
+    from datetime import date as date_type
+
+    try:
+        week_date = date_type.fromisoformat(request.week_start)
+    except ValueError:
+        raise bad_request(f"Invalid date format: {request.week_start}. Use YYYY-MM-DD.")
+
+    try:
+        agg = ops_manager.compute_weekly_aggregate(
+            week_start_date=week_date,
+            sessions_count=request.sessions_count,
+        )
+        return {
+            "status": "success",
+            "week_start": agg.week_start,
+            "week_end": agg.week_end,
+            "weekly_score": agg.weekly_score,
+        }
+    except Exception as e:
+        logger.error(f"Failed to compute weekly aggregate: {e}")
+        raise internal_error(f"Aggregation failed: {e}")
+
+
+@v1_router.get("/ops/stats", responses=AUTH_RESPONSES)
+def get_ops_stats(authorization: Optional[str] = Header(None)):
+    """Get overall ops statistics."""
+    verify_auth(authorization)
+    return ops_manager.get_ops_stats()
 
 
 @app.get("/health")

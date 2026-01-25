@@ -1594,6 +1594,355 @@ def memory_clear(
         raise typer.Exit(1)
 
 
+# Ops Scorecard commands
+ops_app = typer.Typer(help="AI Ops scorecard and tracking")
+app.add_typer(ops_app, name="ops")
+
+
+def get_ops_manager():
+    """Lazy import ops manager."""
+    try:
+        from test_ai.ops import OpsEventManager
+        from test_ai.state import get_database
+
+        backend = get_database()
+        return OpsEventManager(backend=backend)
+    except ImportError as e:
+        console.print(f"[red]Missing dependencies:[/red] {e}")
+        raise typer.Exit(1)
+
+
+@ops_app.command("aggregate")
+def ops_aggregate(
+    week_start: str = typer.Argument(
+        ...,
+        help="Week start date (YYYY-MM-DD, must be a Monday)",
+    ),
+    sessions: int = typer.Option(
+        None,
+        "--sessions",
+        "-s",
+        help="Session count (auto-detected if not provided)",
+    ),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON"),
+):
+    """Compute weekly aggregate for a specific week.
+
+    Example:
+        gorgon ops aggregate 2025-01-20
+        gorgon ops aggregate 2025-01-20 --sessions 50
+    """
+    from datetime import date
+
+    try:
+        week_date = date.fromisoformat(week_start)
+    except ValueError:
+        console.print(f"[red]Invalid date format:[/red] {week_start}")
+        console.print("Use YYYY-MM-DD format (e.g., 2025-01-20)")
+        raise typer.Exit(1)
+
+    # Validate it's a Monday
+    if week_date.weekday() != 0:
+        from test_ai.ops import week_window
+
+        start, _ = week_window(week_date)
+        console.print(f"[yellow]Adjusting to week start:[/yellow] {start.isoformat()}")
+        week_date = start
+
+    manager = get_ops_manager()
+
+    with console.status("[bold cyan]Computing weekly aggregate...", spinner="dots"):
+        agg = manager.compute_weekly_aggregate(week_date, sessions_count=sessions)
+
+    if json_output:
+        print(json.dumps(agg.model_dump(mode="json"), indent=2))
+        return
+
+    # Display score prominently
+    score = agg.weekly_score
+    score_color = "green" if score >= 70 else "yellow" if score >= 50 else "red"
+
+    console.print(
+        Panel(
+            f"[bold {score_color}]{score}[/bold {score_color}]",
+            title=f"Weekly Score ({agg.week_start} to {agg.week_end})",
+            border_style=score_color,
+        )
+    )
+
+    # Component scores
+    console.print("\n[bold]Component Scores:[/bold]")
+    console.print(f"  Output:     {agg.output_score:.1f}/100 (weight: 35%)")
+    console.print(f"  Efficiency: {agg.efficiency_score:.1f}/100 (weight: 20%)")
+    console.print(f"  Impact:     {agg.impact_score:.1f}/100 (weight: 35%)")
+    console.print(f"  Quality:    {agg.quality_score:.1f}/100 (weight: 10%)")
+
+    # Funnel
+    console.print("\n[bold]Ops Funnel:[/bold]")
+    console.print(f"  Sessions:   {agg.sessions}")
+    console.print(f"  Artifacts:  {agg.artifacts}")
+    console.print(f"  Decisions:  {agg.decisions}")
+    console.print(f"  Executions: {agg.executions}")
+
+    # Metrics
+    console.print("\n[bold]Metrics:[/bold]")
+    console.print(f"  Hours Saved: {agg.hours_saved:.1f}")
+    console.print(f"  Loop Rate:   {agg.loop_rate:.3f} ({agg.loops} loops)")
+    console.print(f"  SNR:         {agg.snr:.3f}")
+
+    # Impact
+    console.print("\n[bold]Impact Points:[/bold]")
+    console.print(f"  Career:  {agg.career_points}")
+    console.print(f"  Legal:   {agg.legal_points}")
+    console.print(f"  Revenue: {agg.revenue_points}")
+    console.print(f"  Total:   {agg.impact_points}")
+
+
+@ops_app.command("weekly")
+def ops_weekly(
+    limit: int = typer.Option(12, "--limit", "-l", help="Number of weeks to show"),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON"),
+):
+    """List recent weekly aggregates.
+
+    Example:
+        gorgon ops weekly
+        gorgon ops weekly --limit 4
+    """
+    manager = get_ops_manager()
+    aggregates = manager.list_weekly_aggregates(limit=limit)
+
+    if json_output:
+        print(json.dumps([a.model_dump(mode="json") for a in aggregates], indent=2))
+        return
+
+    if not aggregates:
+        console.print("[yellow]No weekly aggregates found[/yellow]")
+        console.print("\nRun: gorgon ops aggregate YYYY-MM-DD")
+        return
+
+    table = Table(title="Weekly AI Ops Scores")
+    table.add_column("Week", style="cyan")
+    table.add_column("Score", justify="center")
+    table.add_column("Output", justify="right")
+    table.add_column("Efficiency", justify="right")
+    table.add_column("Impact", justify="right")
+    table.add_column("Sessions", justify="right")
+
+    for agg in aggregates:
+        score = agg.weekly_score
+        score_color = "green" if score >= 70 else "yellow" if score >= 50 else "red"
+        table.add_row(
+            agg.week_start,
+            f"[{score_color}]{score}[/{score_color}]",
+            f"{agg.output_score:.0f}",
+            f"{agg.efficiency_score:.0f}",
+            f"{agg.impact_score:.0f}",
+            str(agg.sessions),
+        )
+
+    console.print(table)
+
+
+@ops_app.command("events")
+def ops_events(
+    week_start: str = typer.Option(
+        None, "--week", "-w", help="Filter to week starting on date (YYYY-MM-DD)"
+    ),
+    project: str = typer.Option(None, "--project", "-p", help="Filter by project"),
+    limit: int = typer.Option(20, "--limit", "-l", help="Maximum events to show"),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON"),
+):
+    """List ops events.
+
+    Example:
+        gorgon ops events
+        gorgon ops events --week 2025-01-20
+        gorgon ops events --project career
+    """
+    from datetime import date
+
+    manager = get_ops_manager()
+
+    week_date = None
+    if week_start:
+        try:
+            week_date = date.fromisoformat(week_start)
+        except ValueError:
+            console.print(f"[red]Invalid date format:[/red] {week_start}")
+            raise typer.Exit(1)
+
+    project_type = None
+    if project:
+        try:
+            from test_ai.ops import ProjectType
+
+            project_type = ProjectType(project)
+        except ValueError:
+            console.print(f"[red]Invalid project:[/red] {project}")
+            console.print(
+                f"Valid: {', '.join(p.value for p in ProjectType)}"
+            )
+            raise typer.Exit(1)
+
+    events = manager.list_ops_events(
+        week_start=week_date,
+        project=project_type,
+        limit=limit,
+    )
+
+    if json_output:
+        print(json.dumps([e.model_dump(mode="json") for e in events], indent=2))
+        return
+
+    if not events:
+        console.print("[yellow]No ops events found[/yellow]")
+        return
+
+    table = Table(title="Ops Events")
+    table.add_column("ID", style="dim")
+    table.add_column("Session", style="cyan")
+    table.add_column("Project")
+    table.add_column("Artifact")
+    table.add_column("Decision")
+    table.add_column("Execution")
+    table.add_column("Min Saved", justify="right")
+    table.add_column("Impact", justify="right")
+
+    for e in events:
+        artifact_str = f"[green]✓[/green] {e.artifact_type}" if e.artifact else "-"
+        decision_str = "[green]✓[/green]" if e.decision_closed else "-"
+        execution_str = "[green]✓[/green]" if e.execution_done else "-"
+        loop_indicator = " [red]↺[/red]" if e.loop else ""
+
+        table.add_row(
+            e.id[:8],
+            e.session_id[:8] + loop_indicator,
+            e.project if isinstance(e.project, str) else e.project.value,
+            artifact_str,
+            decision_str,
+            execution_str,
+            str(e.minutes_saved),
+            str(e.impact_total),
+        )
+
+    console.print(table)
+
+
+@ops_app.command("log")
+def ops_log(
+    session_id: str = typer.Argument(..., help="Session ID to log event for"),
+    artifact: bool = typer.Option(False, "--artifact", "-a", help="Produced an artifact"),
+    artifact_type: str = typer.Option(
+        None, "--type", "-t", help="Artifact type (doc/prompt/script/code/template/other)"
+    ),
+    decision: bool = typer.Option(False, "--decision", "-d", help="Closed a decision"),
+    execution: bool = typer.Option(False, "--execution", "-e", help="Completed execution"),
+    minutes: int = typer.Option(0, "--minutes", "-m", help="Minutes saved"),
+    loop: bool = typer.Option(False, "--loop", help="This was a loop/redo"),
+    career: int = typer.Option(0, "--career", help="Career impact points"),
+    legal: int = typer.Option(0, "--legal", help="Legal impact points"),
+    revenue: int = typer.Option(0, "--revenue", help="Revenue impact points"),
+    project: str = typer.Option("other", "--project", "-p", help="Project category"),
+):
+    """Log an ops event for a session.
+
+    Example:
+        gorgon ops log abc123 --artifact --type code --minutes 30 --career 3
+        gorgon ops log def456 --decision --execution --minutes 15
+    """
+    from test_ai.ops import OpsEvent, ArtifactType, ProjectType
+
+    # Validate artifact_type if artifact is set
+    if artifact and not artifact_type:
+        console.print("[red]--type is required when --artifact is set[/red]")
+        raise typer.Exit(1)
+
+    # Validate enums
+    try:
+        project_enum = ProjectType(project)
+    except ValueError:
+        console.print(f"[red]Invalid project:[/red] {project}")
+        console.print(f"Valid: {', '.join(p.value for p in ProjectType)}")
+        raise typer.Exit(1)
+
+    artifact_type_enum = None
+    if artifact_type:
+        try:
+            artifact_type_enum = ArtifactType(artifact_type)
+        except ValueError:
+            console.print(f"[red]Invalid artifact type:[/red] {artifact_type}")
+            console.print(f"Valid: {', '.join(a.value for a in ArtifactType)}")
+            raise typer.Exit(1)
+
+    manager = get_ops_manager()
+
+    try:
+        event = OpsEvent(
+            session_id=session_id,
+            project=project_enum,
+            artifact=artifact,
+            artifact_type=artifact_type_enum,
+            reusable=False,
+            decision_closed=decision,
+            execution_done=execution,
+            minutes_saved=minutes,
+            loop=loop,
+            impact_career=career,
+            impact_legal=legal,
+            impact_revenue=revenue,
+        )
+        created = manager.create_ops_event(event)
+        console.print(f"[green]✓ Logged ops event:[/green] {created.id}")
+
+        # Show summary
+        flags = []
+        if artifact:
+            flags.append(f"artifact ({artifact_type})")
+        if decision:
+            flags.append("decision")
+        if execution:
+            flags.append("execution")
+        if loop:
+            flags.append("[red]loop[/red]")
+
+        console.print(f"  Session: {session_id}")
+        console.print(f"  Flags: {', '.join(flags) if flags else 'none'}")
+        console.print(f"  Minutes saved: {minutes}")
+        console.print(f"  Impact: career={career}, legal={legal}, revenue={revenue}")
+
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+
+@ops_app.command("stats")
+def ops_stats(
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON"),
+):
+    """Show overall ops statistics."""
+    manager = get_ops_manager()
+    stats = manager.get_ops_stats()
+
+    if json_output:
+        print(json.dumps(stats, indent=2))
+        return
+
+    console.print(
+        Panel(
+            f"Total Events: [bold]{stats['total_events']}[/bold]\n"
+            f"Avg Weekly Score: [bold]{stats['average_weekly_score']:.1f}[/bold]",
+            title="AI Ops Statistics",
+            border_style="blue",
+        )
+    )
+
+    if stats.get("events_by_project"):
+        console.print("\n[dim]Events by Project:[/dim]")
+        for proj, count in stats["events_by_project"].items():
+            console.print(f"  {proj}: {count}")
+
+
 # Budget commands
 budget_app = typer.Typer(help="View budget and usage")
 app.add_typer(budget_app, name="budget")
