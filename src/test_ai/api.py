@@ -203,6 +203,16 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="AI Workflow Orchestrator", version="0.1.0", lifespan=lifespan)
 
+# CORS middleware for frontend development
+from fastapi.middleware.cors import CORSMiddleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
     """Middleware to log all API requests with timing and request IDs.

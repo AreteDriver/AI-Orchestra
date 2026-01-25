@@ -268,12 +268,12 @@ class GorgonApiClient {
   // ---------------------------------------------------------------------------
 
   async getYAMLWorkflows(): Promise<{ id: string; name: string; description: string }[]> {
-    const { data } = await this.client.get('/yaml-workflows');
+    const { data } = await this.client.get('/v1/yaml-workflows');
     return data;
   }
 
   async getYAMLWorkflow(id: string): Promise<Record<string, unknown>> {
-    const { data } = await this.client.get(`/yaml-workflows/${id}`);
+    const { data } = await this.client.get(`/v1/yaml-workflows/${id}`);
     return data;
   }
 
@@ -281,7 +281,7 @@ class GorgonApiClient {
     workflowId: string,
     inputs: Record<string, unknown>
   ): Promise<Execution> {
-    const { data } = await this.client.post('/yaml-workflows/execute', {
+    const { data } = await this.client.post('/v1/yaml-workflows/execute', {
       workflow_id: workflowId,
       inputs,
     });
