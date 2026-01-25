@@ -20,7 +20,8 @@ from pydantic import BaseModel
 
 from test_ai.auth import create_access_token, verify_token
 from test_ai.config import get_settings, configure_logging
-from test_ai.orchestrator import WorkflowEngine, Workflow
+from test_ai.orchestrator import Workflow
+from test_ai.orchestrator.workflow_engine_adapter import WorkflowEngineAdapter
 from test_ai.prompts import PromptTemplateManager, PromptTemplate
 from test_ai.workflow import WorkflowVersionManager
 from test_ai.workflow.loader import load_workflow as load_yaml_workflow, list_workflows as list_yaml_workflows
@@ -366,7 +367,7 @@ app.add_exception_handler(APIException, api_exception_handler)
 
 
 # Initialize components
-workflow_engine = WorkflowEngine()
+workflow_engine = WorkflowEngineAdapter()
 prompt_manager = PromptTemplateManager()
 openai_client = OpenAIClient()
 
