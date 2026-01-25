@@ -24,6 +24,8 @@ from .parallel import (
 from .rate_limited_executor import (
     RateLimitedParallelExecutor,
     ProviderRateLimits,
+    AdaptiveRateLimitConfig,
+    AdaptiveRateLimitState,
     create_rate_limited_executor,
 )
 from .versioning import (
@@ -56,6 +58,8 @@ __all__ = [
     # Rate-limited parallel execution
     "RateLimitedParallelExecutor",
     "ProviderRateLimits",
+    "AdaptiveRateLimitConfig",
+    "AdaptiveRateLimitState",
     "create_rate_limited_executor",
     # Versioning
     "SemanticVersion",

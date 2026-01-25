@@ -1,14 +1,16 @@
 """Rate-limited parallel execution for AI workflows.
 
 Provides per-provider rate limiting to prevent 429 errors during
-parallel agent execution.
+parallel agent execution. Includes adaptive rate limiting that
+dynamically adjusts limits based on 429 responses.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable
 
@@ -34,6 +36,97 @@ class ProviderRateLimits:
     anthropic: int = 5
     openai: int = 8
     default: int = 10
+
+
+@dataclass
+class AdaptiveRateLimitConfig:
+    """Configuration for adaptive rate limiting.
+
+    Attributes:
+        min_concurrent: Minimum concurrent requests (floor)
+        backoff_factor: Factor to reduce limit by on 429 (e.g., 0.5 = halve)
+        recovery_factor: Factor to increase limit after successes (e.g., 1.1)
+        recovery_threshold: Consecutive successes before recovery
+        cooldown_seconds: Minimum time between limit adjustments
+    """
+
+    min_concurrent: int = 1
+    backoff_factor: float = 0.5
+    recovery_factor: float = 1.2
+    recovery_threshold: int = 10
+    cooldown_seconds: float = 30.0
+
+
+@dataclass
+class AdaptiveRateLimitState:
+    """Tracks state for adaptive rate limiting per provider.
+
+    Attributes:
+        base_limit: Original configured limit
+        current_limit: Current effective limit
+        consecutive_successes: Count of consecutive successful calls
+        consecutive_failures: Count of consecutive 429 errors
+        last_adjustment_time: Timestamp of last limit adjustment
+        total_429s: Total 429 errors since start
+    """
+
+    base_limit: int
+    current_limit: int
+    consecutive_successes: int = 0
+    consecutive_failures: int = 0
+    last_adjustment_time: float = field(default_factory=time.time)
+    total_429s: int = 0
+
+    def record_success(self, config: AdaptiveRateLimitConfig) -> bool:
+        """Record a successful call. Returns True if limit was adjusted."""
+        self.consecutive_successes += 1
+        self.consecutive_failures = 0
+
+        # Check if we should recover
+        if (
+            self.consecutive_successes >= config.recovery_threshold
+            and self.current_limit < self.base_limit
+            and time.time() - self.last_adjustment_time >= config.cooldown_seconds
+        ):
+            # Ensure at least +1 increase on recovery (handles low current_limit values)
+            new_limit = min(
+                self.base_limit,
+                max(
+                    self.current_limit + 1,
+                    int(self.current_limit * config.recovery_factor),
+                ),
+            )
+            logger.info(
+                f"Rate limit recovery: {self.current_limit} -> {new_limit}"
+            )
+            self.current_limit = new_limit
+            self.consecutive_successes = 0
+            self.last_adjustment_time = time.time()
+            return True
+        return False
+
+    def record_rate_limit_error(self, config: AdaptiveRateLimitConfig) -> bool:
+        """Record a 429 error. Returns True if limit was adjusted."""
+        self.consecutive_failures += 1
+        self.consecutive_successes = 0
+        self.total_429s += 1
+
+        # Apply backoff if cooldown has passed
+        if time.time() - self.last_adjustment_time >= config.cooldown_seconds:
+            new_limit = max(
+                config.min_concurrent,
+                int(self.current_limit * config.backoff_factor),
+            )
+            if new_limit < self.current_limit:
+                logger.warning(
+                    f"Rate limit backoff (429 received): "
+                    f"{self.current_limit} -> {new_limit}"
+                )
+                self.current_limit = new_limit
+                self.consecutive_failures = 0
+                self.last_adjustment_time = time.time()
+                return True
+        return False
 
 
 class RateLimitedParallelExecutor(ParallelExecutor):
@@ -65,6 +158,8 @@ class RateLimitedParallelExecutor(ParallelExecutor):
         max_workers: int = 4,
         timeout: float = 300.0,
         provider_limits: dict[str, int] | None = None,
+        adaptive: bool = True,
+        adaptive_config: AdaptiveRateLimitConfig | None = None,
     ):
         """Initialize rate-limited parallel executor.
 
@@ -73,6 +168,8 @@ class RateLimitedParallelExecutor(ParallelExecutor):
             max_workers: Maximum concurrent workers overall
             timeout: Default timeout in seconds
             provider_limits: Dict of provider name -> max concurrent calls
+            adaptive: Enable adaptive rate limiting (adjust on 429s)
+            adaptive_config: Configuration for adaptive rate limiting
         """
         super().__init__(strategy, max_workers, timeout)
 
@@ -86,6 +183,20 @@ class RateLimitedParallelExecutor(ParallelExecutor):
             "default": limits.get("default", defaults.default),
         }
 
+        # Adaptive rate limiting
+        self._adaptive = adaptive
+        self._adaptive_config = adaptive_config or AdaptiveRateLimitConfig()
+        self._adaptive_state: dict[str, AdaptiveRateLimitState] = {}
+        self._state_lock = asyncio.Lock() if adaptive else None
+
+        # Initialize adaptive state for each provider
+        if adaptive:
+            for provider, limit in self._provider_limits.items():
+                self._adaptive_state[provider] = AdaptiveRateLimitState(
+                    base_limit=limit,
+                    current_limit=limit,
+                )
+
         # Semaphores are created lazily in async context
         self._semaphores: dict[str, asyncio.Semaphore] | None = None
 
@@ -93,13 +204,70 @@ class RateLimitedParallelExecutor(ParallelExecutor):
         """Get or create semaphores for rate limiting.
 
         Must be called from async context.
+        Uses adaptive limits if enabled.
         """
         if self._semaphores is None:
-            self._semaphores = {
-                name: asyncio.Semaphore(limit)
-                for name, limit in self._provider_limits.items()
-            }
+            if self._adaptive:
+                # Use current adaptive limits
+                self._semaphores = {
+                    name: asyncio.Semaphore(state.current_limit)
+                    for name, state in self._adaptive_state.items()
+                }
+            else:
+                self._semaphores = {
+                    name: asyncio.Semaphore(limit)
+                    for name, limit in self._provider_limits.items()
+                }
         return self._semaphores
+
+    def _is_rate_limit_error(self, error: Exception) -> bool:
+        """Check if an exception indicates a rate limit (429) error."""
+        error_str = str(error).lower()
+        error_type = type(error).__name__.lower()
+
+        # Check for common rate limit patterns
+        if "429" in error_str or "rate limit" in error_str:
+            return True
+        if "too many requests" in error_str:
+            return True
+        if "ratelimit" in error_type:
+            return True
+
+        # Check for Anthropic/OpenAI specific errors
+        if hasattr(error, "status_code") and getattr(error, "status_code") == 429:
+            return True
+
+        return False
+
+    async def _adjust_rate_limit(
+        self, provider: str, is_success: bool, error: Exception | None = None
+    ) -> None:
+        """Adjust rate limit based on call outcome.
+
+        Args:
+            provider: Provider name
+            is_success: Whether the call succeeded
+            error: The exception if call failed
+        """
+        if not self._adaptive or self._state_lock is None:
+            return
+
+        async with self._state_lock:
+            state = self._adaptive_state.get(provider)
+            if not state:
+                return
+
+            if is_success:
+                adjusted = state.record_success(self._adaptive_config)
+            elif error and self._is_rate_limit_error(error):
+                adjusted = state.record_rate_limit_error(self._adaptive_config)
+            else:
+                # Non-rate-limit error, don't adjust
+                return
+
+            # If limit changed, recreate semaphore
+            if adjusted and self._semaphores:
+                self._semaphores[provider] = asyncio.Semaphore(state.current_limit)
 
     def _get_provider_for_task(self, task: ParallelTask) -> str:
         """Determine which provider a task uses.
@@ -142,7 +310,9 @@ class RateLimitedParallelExecutor(ParallelExecutor):
             Tuple of (task_id, result, error)
         """
         provider = self._get_provider_for_task(task)
-        semaphore = semaphores.get(provider, semaphores["default"])
+        semaphore = semaphores.get(provider, semaphores.get("default"))
+        if semaphore is None:
+            semaphore = asyncio.Semaphore(10)  # Fallback
 
         task.started_at = datetime.now(timezone.utc)
         logger.debug(
@@ -161,6 +331,10 @@ class RateLimitedParallelExecutor(ParallelExecutor):
                         None, lambda: task.handler(*task.args, **task.kwargs)
                     )
                 task.completed_at = datetime.now(timezone.utc)
+
+                # Record success for adaptive rate limiting
+                await self._adjust_rate_limit(provider, is_success=True)
+
                 return task.id, result, None
             except asyncio.CancelledError:
                 task.completed_at = datetime.now(timezone.utc)
@@ -168,6 +342,10 @@ class RateLimitedParallelExecutor(ParallelExecutor):
             except Exception as e:
                 task.completed_at = datetime.now(timezone.utc)
                 logger.warning(f"Task {task.id} failed: {e}")
+
+                # Record failure for adaptive rate limiting
+                await self._adjust_rate_limit(provider, is_success=False, error=e)
+
                 return task.id, None, e
 
     async def execute_parallel_rate_limited(
@@ -324,14 +502,51 @@ class RateLimitedParallelExecutor(ParallelExecutor):
         """Get current stats for provider rate limits.
 
         Returns:
-            Dict with provider name -> {limit, available (if in async context)}
+            Dict with provider name -> stats including adaptive state
         """
         stats = {}
         for provider, limit in self._provider_limits.items():
-            stats[provider] = {"limit": limit}
+            provider_stats = {"base_limit": limit}
+
+            if self._adaptive and provider in self._adaptive_state:
+                state = self._adaptive_state[provider]
+                provider_stats.update({
+                    "current_limit": state.current_limit,
+                    "consecutive_successes": state.consecutive_successes,
+                    "total_429s": state.total_429s,
+                    "is_throttled": state.current_limit < state.base_limit,
+                })
+            else:
+                provider_stats["current_limit"] = limit
+
             if self._semaphores and provider in self._semaphores:
-                stats[provider]["available"] = self._semaphores[provider]._value  # noqa: SLF001
+                provider_stats["available"] = self._semaphores[provider]._value  # noqa: SLF001
+
+            stats[provider] = provider_stats
         return stats
+
+    def reset_adaptive_state(self, provider: str | None = None) -> None:
+        """Reset adaptive rate limiting state to base limits.
+
+        Args:
+            provider: Specific provider to reset, or None for all
+        """
+        if not self._adaptive:
+            return
+
+        providers = [provider] if provider else list(self._adaptive_state.keys())
+        for p in providers:
+            if p in self._adaptive_state:
+                state = self._adaptive_state[p]
+                state.current_limit = state.base_limit
+                state.consecutive_successes = 0
+                state.consecutive_failures = 0
+                state.last_adjustment_time = time.time()
+                logger.info(f"Reset adaptive state for {p} to base limit {state.base_limit}")
+
+                # Update semaphore if exists
+                if self._semaphores and p in self._semaphores:
+                    self._semaphores[p] = asyncio.Semaphore(state.base_limit)
 
 
 def create_rate_limited_executor(
@@ -339,6 +554,9 @@ def create_rate_limited_executor(
     anthropic_concurrent: int = 5,
     openai_concurrent: int = 8,
     timeout: float = 300.0,
+    adaptive: bool = True,
+    backoff_factor: float = 0.5,
+    recovery_threshold: int = 10,
 ) -> RateLimitedParallelExecutor:
     """Create a rate-limited executor with common defaults.
 
@@ -347,10 +565,18 @@ def create_rate_limited_executor(
         anthropic_concurrent: Max concurrent Anthropic API calls
         openai_concurrent: Max concurrent OpenAI API calls
         timeout: Default timeout in seconds
+        adaptive: Enable adaptive rate limiting (adjusts on 429s)
+        backoff_factor: How much to reduce limit on 429 (0.5 = halve)
+        recovery_threshold: Consecutive successes before recovery
 
     Returns:
         Configured RateLimitedParallelExecutor
     """
+    adaptive_config = AdaptiveRateLimitConfig(
+        backoff_factor=backoff_factor,
+        recovery_threshold=recovery_threshold,
+    ) if adaptive else None
+
     return RateLimitedParallelExecutor(
         strategy=ParallelStrategy.ASYNCIO,
         max_workers=max_workers,
@@ -359,4 +585,6 @@ def create_rate_limited_executor(
             "anthropic": anthropic_concurrent,
             "openai": openai_concurrent,
         },
+        adaptive=adaptive,
+        adaptive_config=adaptive_config,
     )

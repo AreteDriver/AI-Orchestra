@@ -14,6 +14,8 @@ from test_ai.workflow import (
     ParallelTask,
     ParallelStrategy,
     ProviderRateLimits,
+    AdaptiveRateLimitConfig,
+    AdaptiveRateLimitState,
     create_rate_limited_executor,
 )
 from test_ai.providers.base import (
@@ -354,9 +356,9 @@ class TestProviderStats:
 
         stats = executor.get_provider_stats()
 
-        assert stats["anthropic"]["limit"] == 3
-        assert stats["openai"]["limit"] == 5
-        assert stats["default"]["limit"] == 10
+        assert stats["anthropic"]["base_limit"] == 3
+        assert stats["openai"]["base_limit"] == 5
+        assert stats["default"]["base_limit"] == 10
 
 
 class TestAsyncProviderMethods:
@@ -716,3 +718,283 @@ class TestWorkflowExecutorRateLimitedIntegration:
         assert parallel_output["parallel_results"]["echo2"]["stdout"].strip() == "world"
 
 
+class TestAdaptiveRateLimitConfig:
+    """Tests for AdaptiveRateLimitConfig."""
+
+    def test_default_config(self):
+        """Default config has reasonable values."""
+        config = AdaptiveRateLimitConfig()
+        assert config.min_concurrent == 1
+        assert config.backoff_factor == 0.5
+        assert config.recovery_factor == 1.2
+        assert config.recovery_threshold == 10
+        assert config.cooldown_seconds == 30.0
+
+    def test_custom_config(self):
+        """Custom config values are respected."""
+        config = AdaptiveRateLimitConfig(
+            min_concurrent=2,
+            backoff_factor=0.7,
+            recovery_factor=1.5,
+            recovery_threshold=5,
+            cooldown_seconds=60.0,
+        )
+        assert config.min_concurrent == 2
+        assert config.backoff_factor == 0.7
+        assert config.recovery_factor == 1.5
+        assert config.recovery_threshold == 5
+        assert config.cooldown_seconds == 60.0
+
+
+class TestAdaptiveRateLimitState:
+    """Tests for AdaptiveRateLimitState."""
+
+    def test_initial_state(self):
+        """Initial state has correct values."""
+        state = AdaptiveRateLimitState(base_limit=5, current_limit=5)
+        assert state.base_limit == 5
+        assert state.current_limit == 5
+        assert state.consecutive_successes == 0
+        assert state.consecutive_failures == 0
+        assert state.total_429s == 0
+
+    def test_record_success_increments_counter(self):
+        """Success increments consecutive_successes."""
+        config = AdaptiveRateLimitConfig()
+        state = AdaptiveRateLimitState(base_limit=5, current_limit=5)
+        state.record_success(config)
+        assert state.consecutive_successes == 1
+        assert state.consecutive_failures == 0
+
+    def test_record_success_resets_failures(self):
+        """Success resets consecutive_failures."""
+        config = AdaptiveRateLimitConfig()
+        state = AdaptiveRateLimitState(base_limit=5, current_limit=5)
+        state.consecutive_failures = 3
+        state.record_success(config)
+        assert state.consecutive_failures == 0
+
+    def test_record_rate_limit_error_increments_counter(self):
+        """429 error increments failure counter."""
+        config = AdaptiveRateLimitConfig(cooldown_seconds=0)
+        state = AdaptiveRateLimitState(base_limit=5, current_limit=5)
+        state.record_rate_limit_error(config)
+        assert state.total_429s == 1
+
+    def test_record_rate_limit_error_resets_successes(self):
+        """429 error resets consecutive_successes."""
+        config = AdaptiveRateLimitConfig(cooldown_seconds=0)
+        state = AdaptiveRateLimitState(base_limit=5, current_limit=5)
+        state.consecutive_successes = 5
+        state.record_rate_limit_error(config)
+        assert state.consecutive_successes == 0
+
+    def test_backoff_reduces_limit(self):
+        """429 error reduces current limit."""
+        config = AdaptiveRateLimitConfig(backoff_factor=0.5, cooldown_seconds=0)
+        state = AdaptiveRateLimitState(base_limit=8, current_limit=8)
+        state.last_adjustment_time = 0  # Force past cooldown
+        adjusted = state.record_rate_limit_error(config)
+        assert adjusted is True
+        assert state.current_limit == 4
+
+    def test_backoff_respects_min_limit(self):
+        """Backoff doesn't go below min_concurrent."""
+        config = AdaptiveRateLimitConfig(
+            min_concurrent=2, backoff_factor=0.1, cooldown_seconds=0
+        )
+        state = AdaptiveRateLimitState(base_limit=5, current_limit=3)
+        state.last_adjustment_time = 0
+        state.record_rate_limit_error(config)
+        assert state.current_limit == 2  # min_concurrent
+
+    def test_recovery_increases_limit(self):
+        """Recovery increases current limit after enough successes."""
+        config = AdaptiveRateLimitConfig(
+            recovery_factor=1.5, recovery_threshold=3, cooldown_seconds=0
+        )
+        state = AdaptiveRateLimitState(base_limit=10, current_limit=4)
+        state.last_adjustment_time = 0
+
+        # Need recovery_threshold successes
+        for _ in range(3):
+            state.record_success(config)
+
+        assert state.current_limit == 6  # 4 * 1.5
+
+    def test_recovery_caps_at_base_limit(self):
+        """Recovery doesn't exceed base limit."""
+        config = AdaptiveRateLimitConfig(
+            recovery_factor=2.0, recovery_threshold=2, cooldown_seconds=0
+        )
+        state = AdaptiveRateLimitState(base_limit=5, current_limit=4)
+        state.last_adjustment_time = 0
+
+        state.record_success(config)
+        state.record_success(config)
+
+        assert state.current_limit == 5  # Capped at base
+
+
+class TestAdaptiveRateLimiting:
+    """Tests for adaptive rate limiting in executor."""
+
+    def test_executor_with_adaptive_disabled(self):
+        """Executor works with adaptive disabled."""
+        executor = RateLimitedParallelExecutor(adaptive=False)
+        assert executor._adaptive is False
+        assert len(executor._adaptive_state) == 0
+
+    def test_executor_with_adaptive_enabled(self):
+        """Executor initializes adaptive state when enabled."""
+        executor = RateLimitedParallelExecutor(adaptive=True)
+        assert executor._adaptive is True
+        assert "anthropic" in executor._adaptive_state
+        assert "openai" in executor._adaptive_state
+
+    def test_get_provider_stats_includes_adaptive_info(self):
+        """Provider stats include adaptive rate limit info."""
+        executor = RateLimitedParallelExecutor(adaptive=True)
+        stats = executor.get_provider_stats()
+
+        assert "anthropic" in stats
+        assert "current_limit" in stats["anthropic"]
+        assert "consecutive_successes" in stats["anthropic"]
+        assert "total_429s" in stats["anthropic"]
+        assert "is_throttled" in stats["anthropic"]
+
+    def test_reset_adaptive_state_resets_single_provider(self):
+        """reset_adaptive_state resets specific provider."""
+        executor = RateLimitedParallelExecutor(adaptive=True)
+        executor._adaptive_state["anthropic"].current_limit = 2
+        executor._adaptive_state["anthropic"].total_429s = 5
+
+        executor.reset_adaptive_state("anthropic")
+
+        assert executor._adaptive_state["anthropic"].current_limit == 5
+        assert executor._adaptive_state["openai"].current_limit == 8  # Unchanged
+
+    def test_reset_adaptive_state_resets_all_providers(self):
+        """reset_adaptive_state resets all providers when no arg."""
+        executor = RateLimitedParallelExecutor(adaptive=True)
+        executor._adaptive_state["anthropic"].current_limit = 2
+        executor._adaptive_state["openai"].current_limit = 3
+
+        executor.reset_adaptive_state()
+
+        assert executor._adaptive_state["anthropic"].current_limit == 5
+        assert executor._adaptive_state["openai"].current_limit == 8
+
+    def test_is_rate_limit_error_detects_429_string(self):
+        """Detects 429 in error message."""
+        executor = RateLimitedParallelExecutor()
+        error = Exception("Error 429: Too many requests")
+        assert executor._is_rate_limit_error(error) is True
+
+    def test_is_rate_limit_error_detects_rate_limit_string(self):
+        """Detects rate limit in error message."""
+        executor = RateLimitedParallelExecutor()
+        error = Exception("API rate limit exceeded")
+        assert executor._is_rate_limit_error(error) is True
+
+    def test_is_rate_limit_error_detects_status_code(self):
+        """Detects 429 status code attribute."""
+        executor = RateLimitedParallelExecutor()
+
+        class APIError(Exception):
+            status_code = 429
+
+        assert executor._is_rate_limit_error(APIError()) is True
+
+    def test_is_rate_limit_error_returns_false_for_other_errors(self):
+        """Returns False for non-rate-limit errors."""
+        executor = RateLimitedParallelExecutor()
+        error = Exception("Connection timeout")
+        assert executor._is_rate_limit_error(error) is False
+
+    def test_create_executor_with_adaptive_options(self):
+        """create_rate_limited_executor accepts adaptive options."""
+        executor = create_rate_limited_executor(
+            adaptive=True,
+            backoff_factor=0.7,
+            recovery_threshold=5,
+        )
+        assert executor._adaptive is True
+        assert executor._adaptive_config.backoff_factor == 0.7
+        assert executor._adaptive_config.recovery_threshold == 5
+
+    def test_create_executor_without_adaptive(self):
+        """create_rate_limited_executor can disable adaptive."""
+        executor = create_rate_limited_executor(adaptive=False)
+        assert executor._adaptive is False
+
+
+class TestAdaptiveRateLimitingAsync:
+    """Async tests for adaptive rate limiting behavior."""
+
+    @pytest.mark.asyncio
+    async def test_adjust_rate_limit_on_success(self):
+        """Rate limit adjusts on successful calls."""
+        executor = RateLimitedParallelExecutor(adaptive=True)
+        executor._adaptive_state["anthropic"].current_limit = 3
+        executor._adaptive_state["anthropic"].consecutive_successes = 9
+        executor._adaptive_state["anthropic"].last_adjustment_time = 0
+
+        await executor._adjust_rate_limit("anthropic", is_success=True)
+
+        # Should have recovered after 10 successes
+        assert executor._adaptive_state["anthropic"].current_limit > 3
+
+    @pytest.mark.asyncio
+    async def test_adjust_rate_limit_on_429_error(self):
+        """Rate limit backs off on 429 error."""
+        config = AdaptiveRateLimitConfig(cooldown_seconds=0)
+        executor = RateLimitedParallelExecutor(
+            adaptive=True, adaptive_config=config
+        )
+        executor._adaptive_state["anthropic"].last_adjustment_time = 0
+
+        error = Exception("Error 429: Rate limit")
+        await executor._adjust_rate_limit("anthropic", is_success=False, error=error)
+
+        assert executor._adaptive_state["anthropic"].current_limit < 5
+        assert executor._adaptive_state["anthropic"].total_429s == 1
+
+    @pytest.mark.asyncio
+    async def test_adjust_rate_limit_ignores_non_429_errors(self):
+        """Non-429 errors don't trigger backoff."""
+        executor = RateLimitedParallelExecutor(adaptive=True)
+        original_limit = executor._adaptive_state["anthropic"].current_limit
+
+        error = Exception("Connection timeout")
+        await executor._adjust_rate_limit("anthropic", is_success=False, error=error)
+
+        assert executor._adaptive_state["anthropic"].current_limit == original_limit
+
+    @pytest.mark.asyncio
+    async def test_task_execution_triggers_adjustment(self):
+        """Task execution triggers rate limit adjustment."""
+        config = AdaptiveRateLimitConfig(cooldown_seconds=0, recovery_threshold=1)
+        executor = RateLimitedParallelExecutor(
+            adaptive=True, adaptive_config=config
+        )
+        # Reduce limit first
+        executor._adaptive_state["anthropic"].current_limit = 3
+        executor._adaptive_state["anthropic"].last_adjustment_time = 0
+
+        async def success_handler(**kwargs):
+            return "ok"
+
+        task = ParallelTask(
+            id="t1",
+            step_id="t1",
+            handler=success_handler,
+            kwargs={"provider": "anthropic"},
+        )
+
+        semaphores = executor._get_semaphores()
+        result = await executor._run_task_with_rate_limit(task, semaphores)
+
+        assert result[2] is None  # No error
+        # After 1 success with threshold=1, should recover
+        assert executor._adaptive_state["anthropic"].current_limit > 3
