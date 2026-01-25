@@ -28,6 +28,15 @@ from .rate_limited_executor import (
     AdaptiveRateLimitState,
     create_rate_limited_executor,
 )
+from .distributed_rate_limiter import (
+    DistributedRateLimiter,
+    RedisRateLimiter,
+    SQLiteRateLimiter,
+    MemoryRateLimiter,
+    RateLimitResult,
+    get_rate_limiter,
+    reset_rate_limiter,
+)
 from .versioning import (
     SemanticVersion,
     WorkflowVersion,
@@ -61,6 +70,14 @@ __all__ = [
     "AdaptiveRateLimitConfig",
     "AdaptiveRateLimitState",
     "create_rate_limited_executor",
+    # Distributed rate limiting
+    "DistributedRateLimiter",
+    "RedisRateLimiter",
+    "SQLiteRateLimiter",
+    "MemoryRateLimiter",
+    "RateLimitResult",
+    "get_rate_limiter",
+    "reset_rate_limiter",
     # Versioning
     "SemanticVersion",
     "WorkflowVersion",

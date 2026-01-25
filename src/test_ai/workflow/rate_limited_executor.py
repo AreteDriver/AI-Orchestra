@@ -160,6 +160,9 @@ class RateLimitedParallelExecutor(ParallelExecutor):
         provider_limits: dict[str, int] | None = None,
         adaptive: bool = True,
         adaptive_config: AdaptiveRateLimitConfig | None = None,
+        distributed: bool = False,
+        distributed_window: int = 60,
+        distributed_rpm: dict[str, int] | None = None,
     ):
         """Initialize rate-limited parallel executor.
 
@@ -170,8 +173,23 @@ class RateLimitedParallelExecutor(ParallelExecutor):
             provider_limits: Dict of provider name -> max concurrent calls
             adaptive: Enable adaptive rate limiting (adjust on 429s)
             adaptive_config: Configuration for adaptive rate limiting
+            distributed: Enable cross-process rate limiting
+            distributed_window: Time window for distributed limits (seconds)
+            distributed_rpm: Dict of provider -> requests per minute for distributed
         """
         super().__init__(strategy, max_workers, timeout)
+
+        # Distributed rate limiting (cross-process)
+        self._distributed = distributed
+        self._distributed_window = distributed_window
+        self._distributed_limiter = None
+
+        # Default RPM limits (conservative for API rate limits)
+        self._distributed_rpm = distributed_rpm or {
+            "anthropic": 60,   # 60 RPM typical
+            "openai": 90,      # Higher for GPT
+            "default": 120,
+        }
 
         # Set up per-provider limits
         defaults = ProviderRateLimits()
@@ -199,6 +217,46 @@ class RateLimitedParallelExecutor(ParallelExecutor):
 
         # Semaphores are created lazily in async context
         self._semaphores: dict[str, asyncio.Semaphore] | None = None
+
+    def _get_distributed_limiter(self):
+        """Get or create distributed rate limiter."""
+        if not self._distributed:
+            return None
+
+        if self._distributed_limiter is None:
+            from .distributed_rate_limiter import get_rate_limiter
+
+            self._distributed_limiter = get_rate_limiter()
+            logger.info("Distributed rate limiting enabled")
+
+        return self._distributed_limiter
+
+    async def _check_distributed_limit(self, provider: str) -> bool:
+        """Check if request is allowed under distributed rate limit.
+
+        Args:
+            provider: Provider to check
+
+        Returns:
+            True if allowed, False if rate limited
+        """
+        limiter = self._get_distributed_limiter()
+        if limiter is None:
+            return True
+
+        rpm = self._distributed_rpm.get(provider, self._distributed_rpm["default"])
+        key = f"provider:{provider}"
+
+        result = await limiter.acquire(key, rpm, self._distributed_window)
+
+        if not result.allowed:
+            logger.warning(
+                f"Distributed rate limit hit for {provider}: "
+                f"{result.current_count}/{rpm} in {self._distributed_window}s window. "
+                f"Retry after {result.retry_after:.1f}s"
+            )
+
+        return result.allowed
 
     def _get_semaphores(self) -> dict[str, asyncio.Semaphore]:
         """Get or create semaphores for rate limiting.
@@ -315,6 +373,29 @@ class RateLimitedParallelExecutor(ParallelExecutor):
             semaphore = asyncio.Semaphore(10)  # Fallback
 
         task.started_at = datetime.now(timezone.utc)
+
+        # Check distributed rate limit (cross-process)
+        if self._distributed:
+            max_retries = 3
+            for attempt in range(max_retries):
+                allowed = await self._check_distributed_limit(provider)
+                if allowed:
+                    break
+
+                # Wait and retry
+                wait_time = min(5.0 * (attempt + 1), 30.0)
+                logger.info(
+                    f"Task {task.id} waiting {wait_time}s for distributed rate limit"
+                )
+                await asyncio.sleep(wait_time)
+            else:
+                # All retries exhausted
+                error = RuntimeError(
+                    f"Distributed rate limit exceeded for {provider} after {max_retries} retries"
+                )
+                task.completed_at = datetime.now(timezone.utc)
+                return task.id, None, error
+
         logger.debug(
             f"Task {task.id} waiting for {provider} semaphore "
             f"(available: {semaphore._value})"  # noqa: SLF001
@@ -522,6 +603,16 @@ class RateLimitedParallelExecutor(ParallelExecutor):
             if self._semaphores and provider in self._semaphores:
                 provider_stats["available"] = self._semaphores[provider]._value  # noqa: SLF001
 
+            # Add distributed rate limit info
+            if self._distributed:
+                provider_stats["distributed_enabled"] = True
+                provider_stats["distributed_rpm"] = self._distributed_rpm.get(
+                    provider, self._distributed_rpm["default"]
+                )
+                provider_stats["distributed_window"] = self._distributed_window
+            else:
+                provider_stats["distributed_enabled"] = False
+
             stats[provider] = provider_stats
         return stats
 
@@ -557,17 +648,25 @@ def create_rate_limited_executor(
     adaptive: bool = True,
     backoff_factor: float = 0.5,
     recovery_threshold: int = 10,
+    distributed: bool = False,
+    distributed_window: int = 60,
+    anthropic_rpm: int = 60,
+    openai_rpm: int = 90,
 ) -> RateLimitedParallelExecutor:
     """Create a rate-limited executor with common defaults.
 
     Args:
         max_workers: Maximum overall concurrent tasks
-        anthropic_concurrent: Max concurrent Anthropic API calls
-        openai_concurrent: Max concurrent OpenAI API calls
+        anthropic_concurrent: Max concurrent Anthropic API calls (per process)
+        openai_concurrent: Max concurrent OpenAI API calls (per process)
         timeout: Default timeout in seconds
         adaptive: Enable adaptive rate limiting (adjusts on 429s)
         backoff_factor: How much to reduce limit on 429 (0.5 = halve)
         recovery_threshold: Consecutive successes before recovery
+        distributed: Enable cross-process rate limiting
+        distributed_window: Time window for distributed limits (seconds)
+        anthropic_rpm: Anthropic requests per minute (distributed)
+        openai_rpm: OpenAI requests per minute (distributed)
 
     Returns:
         Configured RateLimitedParallelExecutor
@@ -576,6 +675,12 @@ def create_rate_limited_executor(
         backoff_factor=backoff_factor,
         recovery_threshold=recovery_threshold,
     ) if adaptive else None
+
+    distributed_rpm = {
+        "anthropic": anthropic_rpm,
+        "openai": openai_rpm,
+        "default": max(anthropic_rpm, openai_rpm),
+    } if distributed else None
 
     return RateLimitedParallelExecutor(
         strategy=ParallelStrategy.ASYNCIO,
@@ -587,4 +692,7 @@ def create_rate_limited_executor(
         },
         adaptive=adaptive,
         adaptive_config=adaptive_config,
+        distributed=distributed,
+        distributed_window=distributed_window,
+        distributed_rpm=distributed_rpm,
     )
