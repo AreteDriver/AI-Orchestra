@@ -6,11 +6,14 @@ objects to the new WorkflowConfig format used by WorkflowExecutor.
 
 from __future__ import annotations
 
+import json
 import logging
-from typing import Any
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 from .workflow_engine import Workflow, WorkflowStep, WorkflowResult, StepType
 from test_ai.workflow import WorkflowExecutor, WorkflowConfig, StepConfig, ExecutionResult
+from test_ai.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -181,3 +184,76 @@ class WorkflowEngineAdapter:
         config = convert_workflow(workflow)
         result = await self._executor.execute_async(config, inputs=workflow.variables)
         return convert_execution_result(result, workflow.id)
+
+    @property
+    def settings(self):
+        """Get settings for compatibility with code expecting settings attribute."""
+        return get_settings()
+
+    def save_workflow(self, workflow: Workflow) -> bool:
+        """Save a workflow definition to JSON file.
+
+        Args:
+            workflow: Workflow to save
+
+        Returns:
+            True if saved successfully, False otherwise
+        """
+        try:
+            settings = get_settings()
+            settings.workflows_dir.mkdir(parents=True, exist_ok=True)
+            file_path = settings.workflows_dir / f"{workflow.id}.json"
+            with open(file_path, "w") as f:
+                json.dump(workflow.model_dump(), f, indent=2)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save workflow {workflow.id}: {e}")
+            return False
+
+    def load_workflow(self, workflow_id: str) -> Optional[Workflow]:
+        """Load a workflow definition from JSON file.
+
+        Args:
+            workflow_id: ID of workflow to load
+
+        Returns:
+            Workflow if found, None otherwise
+        """
+        try:
+            settings = get_settings()
+            file_path = settings.workflows_dir / f"{workflow_id}.json"
+            if not file_path.exists():
+                return None
+            with open(file_path, "r") as f:
+                data = json.load(f)
+            return Workflow(**data)
+        except Exception as e:
+            logger.error(f"Failed to load workflow {workflow_id}: {e}")
+            return None
+
+    def list_workflows(self) -> List[Dict]:
+        """List all available workflows.
+
+        Returns:
+            List of workflow metadata dicts (id, name, description)
+        """
+        workflows = []
+        settings = get_settings()
+        if not settings.workflows_dir.exists():
+            return workflows
+
+        for file_path in settings.workflows_dir.glob("*.json"):
+            try:
+                with open(file_path, "r") as f:
+                    data = json.load(f)
+                workflows.append(
+                    {
+                        "id": data.get("id"),
+                        "name": data.get("name"),
+                        "description": data.get("description"),
+                    }
+                )
+            except Exception as e:
+                logger.warning(f"Failed to read workflow file {file_path}: {e}")
+                continue
+        return workflows

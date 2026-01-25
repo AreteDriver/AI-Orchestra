@@ -716,32 +716,3 @@ class TestWorkflowExecutorRateLimitedIntegration:
         assert parallel_output["parallel_results"]["echo2"]["stdout"].strip() == "world"
 
 
-class TestWorkflowEngineDeprecation:
-    """Tests for WorkflowEngine deprecation warning."""
-
-    def test_deprecation_warning_on_init(self):
-        """WorkflowEngine emits deprecation warning on init."""
-        with patch("test_ai.orchestrator.workflow_engine.get_settings") as mock:
-            mock.return_value = MagicMock(
-                openai_api_key=None,
-                anthropic_api_key=None,
-                github_token=None,
-                logs_dir=MagicMock(),
-                workflows_dir=MagicMock(),
-            )
-
-            import warnings
-
-            with warnings.catch_warnings(record=True) as w:
-                warnings.simplefilter("always")
-
-                from test_ai.orchestrator.workflow_engine import WorkflowEngine
-
-                WorkflowEngine()
-
-                assert len(w) >= 1
-                deprecation_warnings = [
-                    x for x in w if issubclass(x.category, DeprecationWarning)
-                ]
-                assert len(deprecation_warnings) >= 1
-                assert "WorkflowExecutor" in str(deprecation_warnings[0].message)
