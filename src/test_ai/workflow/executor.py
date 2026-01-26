@@ -14,6 +14,11 @@ from typing import Callable
 from .loader import WorkflowConfig, StepConfig
 from .parallel import ParallelExecutor, ParallelTask, ParallelStrategy
 from .rate_limited_executor import RateLimitedParallelExecutor
+from .auto_parallel import build_dependency_graph, find_parallel_groups
+from test_ai.monitoring.parallel_tracker import (
+    ParallelPatternType,
+    get_parallel_tracker,
+)
 from test_ai.utils.validation import substitute_shell_variables, validate_shell_command
 from test_ai.utils.circuit_breaker import CircuitBreaker, CircuitBreakerError
 
@@ -203,6 +208,9 @@ class WorkflowExecutor:
             "parallel": self._execute_parallel,
             "claude_code": self._execute_claude_code,
             "openai": self._execute_openai,
+            "fan_out": self._execute_fan_out,
+            "fan_in": self._execute_fan_in,
+            "map_reduce": self._execute_map_reduce,
         }
         self._context: dict = {}
         self._current_workflow_id: str | None = None
@@ -502,13 +510,103 @@ class WorkflowExecutor:
 
         start_index = self._find_resume_index(workflow, resume_from)
 
-        # Execute steps
+        # Execute steps - use auto-parallel if enabled
         error = None
         try:
-            for step in workflow.steps[start_index:]:
-                if self._check_budget_exceeded(step, result):
-                    break
+            if workflow.settings.auto_parallel:
+                self._execute_with_auto_parallel(
+                    workflow, start_index, workflow_id, result
+                )
+            else:
+                self._execute_sequential(workflow, start_index, workflow_id, result)
+        except Exception as e:
+            error = e
 
+        self._finalize_workflow(result, workflow, workflow_id, error)
+        return result
+
+    def _execute_sequential(
+        self,
+        workflow: WorkflowConfig,
+        start_index: int,
+        workflow_id: str | None,
+        result: ExecutionResult,
+    ) -> None:
+        """Execute workflow steps sequentially.
+
+        Args:
+            workflow: WorkflowConfig to execute
+            start_index: Index to start from
+            workflow_id: Current workflow ID
+            result: ExecutionResult to update
+        """
+        for step in workflow.steps[start_index:]:
+            if self._check_budget_exceeded(step, result):
+                break
+
+            step_result = self._execute_step(step, workflow_id)
+            self._record_step_completion(step, step_result, result)
+
+            if step_result.status == StepStatus.FAILED:
+                action = self._handle_step_failure(
+                    step, step_result, result, workflow_id
+                )
+                if action == "abort":
+                    break
+                if action == "skip":
+                    continue
+
+            self._store_step_outputs(step, step_result)
+        else:
+            result.status = "success"
+
+    def _execute_with_auto_parallel(
+        self,
+        workflow: WorkflowConfig,
+        start_index: int,
+        workflow_id: str | None,
+        result: ExecutionResult,
+    ) -> None:
+        """Execute workflow with auto-parallel optimization.
+
+        Analyzes step dependencies and executes independent steps
+        concurrently for improved performance.
+
+        Args:
+            workflow: WorkflowConfig to execute
+            start_index: Index to start from
+            workflow_id: Current workflow ID
+            result: ExecutionResult to update
+        """
+        steps = workflow.steps[start_index:]
+        if not steps:
+            result.status = "success"
+            return
+
+        # Build dependency graph and find parallel groups
+        graph = build_dependency_graph(steps)
+        groups = find_parallel_groups(graph)
+
+        max_workers = workflow.settings.auto_parallel_max_workers
+        step_map = {step.id: step for step in steps}
+        completed: set[str] = set()
+
+        logger.info(
+            f"Auto-parallel: {len(steps)} steps in {len(groups)} groups "
+            f"(max_workers={max_workers})"
+        )
+
+        for group in groups:
+            group_steps = [step_map[step_id] for step_id in group.step_ids]
+
+            # Check budget for all steps in group
+            for step in group_steps:
+                if self._check_budget_exceeded(step, result):
+                    return
+
+            if len(group_steps) == 1:
+                # Single step - execute directly
+                step = group_steps[0]
                 step_result = self._execute_step(step, workflow_id)
                 self._record_step_completion(step, step_result, result)
 
@@ -517,19 +615,170 @@ class WorkflowExecutor:
                         step, step_result, result, workflow_id
                     )
                     if action == "abort":
-                        break
-                    if action == "skip":
-                        continue
+                        return
+                    if action != "skip":
+                        self._store_step_outputs(step, step_result)
+                else:
+                    self._store_step_outputs(step, step_result)
 
-                self._store_step_outputs(step, step_result)
+                completed.add(step.id)
             else:
-                result.status = "success"
+                # Multiple steps - execute in parallel
+                self._execute_parallel_group(
+                    group_steps, workflow_id, result, max_workers
+                )
+                completed.update(step.id for step in group_steps)
 
-        except Exception as e:
-            error = e
+                # Check if any step in the group failed fatally
+                if result.status == "failed":
+                    return
 
-        self._finalize_workflow(result, workflow, workflow_id, error)
-        return result
+        result.status = "success"
+
+    def _execute_parallel_group(
+        self,
+        steps: list[StepConfig],
+        workflow_id: str | None,
+        result: ExecutionResult,
+        max_workers: int,
+    ) -> None:
+        """Execute a group of steps in parallel.
+
+        Args:
+            steps: Steps to execute concurrently
+            workflow_id: Current workflow ID
+            result: ExecutionResult to update
+            max_workers: Maximum concurrent workers
+        """
+        logger.debug(
+            f"Executing parallel group: {[s.id for s in steps]} "
+            f"(max_workers={max_workers})"
+        )
+
+        # Start parallel execution tracking
+        tracker = get_parallel_tracker()
+        group_id = "_".join(s.id for s in steps[:3])  # First 3 step IDs
+        execution_id = f"parallel_group_{group_id}_{int(time.time() * 1000)}"
+        tracker.start_execution(
+            execution_id=execution_id,
+            pattern_type=ParallelPatternType.PARALLEL_GROUP,
+            step_id=group_id,
+            total_items=len(steps),
+            max_concurrent=max_workers,
+            workflow_id=workflow_id,
+        )
+
+        # Detect AI step types for rate limiting
+        ai_step_types = {"claude_code", "openai"}
+        has_ai_steps = any(step.type in ai_step_types for step in steps)
+        max_timeout = max(step.timeout_seconds for step in steps)
+
+        if has_ai_steps:
+            # Use rate-limited executor with adaptive configuration
+            executor = RateLimitedParallelExecutor(
+                strategy=ParallelStrategy.ASYNCIO,
+                max_workers=max_workers,
+                timeout=max_timeout,
+                adaptive=True,  # Enable adaptive rate limiting
+            )
+        else:
+            executor = ParallelExecutor(
+                strategy=ParallelStrategy.THREADING,
+                max_workers=max_workers,
+                timeout=max_timeout,
+            )
+
+        step_results: dict[str, StepResult] = {}
+
+        def make_handler(step: StepConfig, idx: int):
+            def handler(**kwargs):
+                # Track branch start
+                tracker.start_branch(execution_id, step.id, idx, step.id)
+                try:
+                    step_result = self._execute_step(step, workflow_id)
+                    tokens = step_result.tokens_used if step_result else 0
+                    if step_result and step_result.status == StepStatus.FAILED:
+                        tracker.fail_branch(
+                            execution_id, step.id, step_result.error or "Unknown error"
+                        )
+                    else:
+                        tracker.complete_branch(execution_id, step.id, tokens)
+                    return step_result
+                except Exception as e:
+                    tracker.fail_branch(execution_id, step.id, str(e))
+                    raise
+
+            return handler
+
+        tasks = [
+            ParallelTask(
+                id=step.id,
+                step_id=step.id,
+                handler=make_handler(step, idx),
+                kwargs={"step_type": step.type},
+            )
+            for idx, step in enumerate(steps)
+        ]
+
+        def on_complete(task_id: str, step_result: StepResult):
+            step_results[task_id] = step_result
+
+        def on_error(task_id: str, error: Exception):
+            step_results[task_id] = StepResult(
+                step_id=task_id,
+                status=StepStatus.FAILED,
+                error=str(error),
+            )
+
+        executor.execute_parallel(
+            tasks=tasks,
+            on_complete=on_complete,
+            on_error=on_error,
+            fail_fast=False,
+        )
+
+        # Capture and track rate limit stats for AI executors
+        if has_ai_steps and hasattr(executor, "get_provider_stats"):
+            provider_stats = executor.get_provider_stats()
+            for provider, stats in provider_stats.items():
+                if stats.get("total_429s", 0) > 0 or stats.get("is_throttled", False):
+                    tracker.update_rate_limit_state(
+                        provider=provider,
+                        current_limit=stats.get("current_limit", 0),
+                        base_limit=stats.get("base_limit", 0),
+                        total_429s=stats.get("total_429s", 0),
+                        is_throttled=stats.get("is_throttled", False),
+                    )
+
+        # Process results
+        step_map = {step.id: step for step in steps}
+        abort = False
+        has_failures = False
+
+        for step_id, step_result in step_results.items():
+            step = step_map[step_id]
+            self._record_step_completion(step, step_result, result)
+
+            if step_result.status == StepStatus.FAILED:
+                has_failures = True
+                action = self._handle_step_failure(
+                    step, step_result, result, workflow_id
+                )
+                if action == "abort":
+                    abort = True
+                elif action != "skip":
+                    self._store_step_outputs(step, step_result)
+            else:
+                self._store_step_outputs(step, step_result)
+
+        # Complete execution tracking
+        if has_failures:
+            tracker.fail_execution(execution_id)
+        else:
+            tracker.complete_execution(execution_id)
+
+        if abort:
+            result.status = "failed"
 
     async def execute_async(
         self,
@@ -566,13 +815,84 @@ class WorkflowExecutor:
 
         start_index = self._find_resume_index(workflow, resume_from)
 
-        # Execute steps
+        # Execute steps - use auto-parallel if enabled
         error = None
         try:
-            for step in workflow.steps[start_index:]:
-                if self._check_budget_exceeded(step, result):
-                    break
+            if workflow.settings.auto_parallel:
+                await self._execute_with_auto_parallel_async(
+                    workflow, start_index, workflow_id, result
+                )
+            else:
+                await self._execute_sequential_async(
+                    workflow, start_index, workflow_id, result
+                )
+        except Exception as e:
+            error = e
 
+        self._finalize_workflow(result, workflow, workflow_id, error)
+        return result
+
+    async def _execute_sequential_async(
+        self,
+        workflow: WorkflowConfig,
+        start_index: int,
+        workflow_id: str | None,
+        result: ExecutionResult,
+    ) -> None:
+        """Execute workflow steps sequentially (async version)."""
+        for step in workflow.steps[start_index:]:
+            if self._check_budget_exceeded(step, result):
+                break
+
+            step_result = await self._execute_step_async(step, workflow_id)
+            self._record_step_completion(step, step_result, result)
+
+            if step_result.status == StepStatus.FAILED:
+                action = await self._handle_step_failure_async(
+                    step, step_result, result, workflow_id
+                )
+                if action == "abort":
+                    break
+                if action == "skip":
+                    continue
+
+            self._store_step_outputs(step, step_result)
+        else:
+            result.status = "success"
+
+    async def _execute_with_auto_parallel_async(
+        self,
+        workflow: WorkflowConfig,
+        start_index: int,
+        workflow_id: str | None,
+        result: ExecutionResult,
+    ) -> None:
+        """Execute workflow with auto-parallel optimization (async version)."""
+        steps = workflow.steps[start_index:]
+        if not steps:
+            result.status = "success"
+            return
+
+        graph = build_dependency_graph(steps)
+        groups = find_parallel_groups(graph)
+
+        max_workers = workflow.settings.auto_parallel_max_workers
+        step_map = {step.id: step for step in steps}
+
+        logger.info(
+            f"Auto-parallel async: {len(steps)} steps in {len(groups)} groups "
+            f"(max_workers={max_workers})"
+        )
+
+        for group in groups:
+            group_steps = [step_map[step_id] for step_id in group.step_ids]
+
+            for step in group_steps:
+                if self._check_budget_exceeded(step, result):
+                    return
+
+            if len(group_steps) == 1:
+                step = group_steps[0]
                 step_result = await self._execute_step_async(step, workflow_id)
                 self._record_step_completion(step, step_result, result)
 
@@ -581,20 +901,69 @@ class WorkflowExecutor:
                         step, step_result, result, workflow_id
                     )
                     if action == "abort":
-                        break
-                    if action == "skip":
-                        continue
-
-                self._store_step_outputs(step, step_result)
+                        return
+                    if action != "skip":
+                        self._store_step_outputs(step, step_result)
+                else:
+                    self._store_step_outputs(step, step_result)
             else:
-                # All steps completed
-                result.status = "success"
+                await self._execute_parallel_group_async(
+                    group_steps, workflow_id, result, max_workers
+                )
+                if result.status == "failed":
+                    return
 
-        except Exception as e:
-            error = e
+        result.status = "success"
 
-        self._finalize_workflow(result, workflow, workflow_id, error)
-        return result
+    async def _execute_parallel_group_async(
+        self,
+        steps: list[StepConfig],
+        workflow_id: str | None,
+        result: ExecutionResult,
+        max_workers: int,
+    ) -> None:
+        """Execute a group of steps in parallel (async version)."""
+        logger.debug(
+            f"Executing parallel group async: {[s.id for s in steps]} "
+            f"(max_workers={max_workers})"
+        )
+
+        semaphore = asyncio.Semaphore(max_workers)
+        step_results: dict[str, StepResult] = {}
+
+        async def execute_step(step: StepConfig):
+            async with semaphore:
+                return step.id, await self._execute_step_async(step, workflow_id)
+
+        tasks = [execute_step(step) for step in steps]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for item in results:
+            if isinstance(item, Exception):
+                continue
+            step_id, step_result = item
+            step_results[step_id] = step_result
+
+        step_map = {step.id: step for step in steps}
+        abort = False
+
+        for step_id, step_result in step_results.items():
+            step = step_map[step_id]
+            self._record_step_completion(step, step_result, result)
+
+            if step_result.status == StepStatus.FAILED:
+                action = await self._handle_step_failure_async(
+                    step, step_result, result, workflow_id
+                )
+                if action == "abort":
+                    abort = True
+                elif action != "skip":
+                    self._store_step_outputs(step, step_result)
+            else:
+                self._store_step_outputs(step, step_result)
+
+        if abort:
+            result.status = "failed"
 
     def _check_step_preconditions(
         self, step: StepConfig, result: StepResult
@@ -1189,7 +1558,9 @@ class WorkflowExecutor:
                 step_id=sub_step.id,
                 handler=make_handler(sub_step),
                 dependencies=sub_step.depends_on,
-                kwargs={"step_type": sub_step.type},  # For rate limiter provider detection
+                kwargs={
+                    "step_type": sub_step.type
+                },  # For rate limiter provider detection
             )
             for sub_step in parsed_steps.values()
         ]
@@ -1369,6 +1740,452 @@ class WorkflowExecutor:
             "prompt": prompt,
             "response": response_text,
             "tokens_used": estimated_tokens,
+        }
+
+    def _substitute_template_vars(self, template: str, item: any, index: int) -> str:
+        """Substitute template variables with item value and index.
+
+        Supports:
+            ${item} - The current item value
+            ${index} - The current item index (0-based)
+            ${context_var} - Any variable from execution context
+        """
+        result = template.replace("${item}", str(item))
+        result = result.replace("${index}", str(index))
+
+        # Also substitute context variables
+        for key, value in self._context.items():
+            if isinstance(value, str):
+                result = result.replace(f"${{{key}}}", value)
+
+        return result
+
+    def _execute_fan_out(self, step: StepConfig, context: dict) -> dict:
+        """Execute a fan-out (scatter) step.
+
+        Iterates over a list of items and executes a step template for each
+        item concurrently with rate limiting.
+
+        Params:
+            items: Expression that resolves to a list (e.g., "${files}")
+            max_concurrent: Maximum concurrent executions (default: 5)
+            step_template: Step configuration template with ${item} placeholders
+            fail_fast: If True, abort on first failure (default: False)
+            collect_errors: If True, include errors in results (default: True)
+
+        Returns:
+            Dict with:
+            - results: List of results from each item
+            - successful: Count of successful executions
+            - failed: Count of failed executions
+            - tokens_used: Total tokens used
+        """
+        # Resolve items from context
+        items_expr = step.params.get("items", [])
+        if (
+            isinstance(items_expr, str)
+            and items_expr.startswith("${")
+            and items_expr.endswith("}")
+        ):
+            var_name = items_expr[2:-1]
+            items = context.get(var_name, [])
+        else:
+            items = items_expr
+
+        if not isinstance(items, list):
+            raise ValueError(f"fan_out items must be a list, got {type(items)}")
+
+        if not items:
+            return {
+                "results": [],
+                "successful": 0,
+                "failed": 0,
+                "tokens_used": 0,
+            }
+
+        max_concurrent = step.params.get("max_concurrent", 5)
+        step_template = step.params.get("step_template", {})
+        fail_fast = step.params.get("fail_fast", False)
+        collect_errors = step.params.get("collect_errors", True)
+
+        if not step_template:
+            raise ValueError("fan_out requires step_template parameter")
+
+        # Start parallel execution tracking
+        tracker = get_parallel_tracker()
+        execution_id = f"fan_out_{step.id}_{int(time.time() * 1000)}"
+        tracker.start_execution(
+            execution_id=execution_id,
+            pattern_type=ParallelPatternType.FAN_OUT,
+            step_id=step.id,
+            total_items=len(items),
+            max_concurrent=max_concurrent,
+            workflow_id=context.get("workflow_id"),
+        )
+
+        # Build parallel tasks for each item
+        tasks = []
+        for idx, item in enumerate(items):
+            # Create a step config from template with substituted values
+            template_copy = step_template.copy()
+            params = template_copy.get("params", {}).copy()
+
+            # Substitute ${item} and ${index} in prompt and other string params
+            for key, value in params.items():
+                if isinstance(value, str):
+                    params[key] = self._substitute_template_vars(value, item, idx)
+
+            template_copy["params"] = params
+            template_copy["id"] = f"{step.id}_item_{idx}"
+            template_copy["outputs"] = template_copy.get("outputs", [])
+
+            sub_step = StepConfig.from_dict(template_copy)
+            branch_id = f"{step.id}_item_{idx}"
+
+            # Create task with tracking
+            def make_handler(
+                sub_step_config: StepConfig,
+                item_value: any,
+                item_idx: int,
+                b_id: str,
+            ):
+                def handler(**kwargs):
+                    # Start branch tracking
+                    tracker.start_branch(execution_id, b_id, item_idx, item_value)
+
+                    try:
+                        step_handler = self._handlers.get(sub_step_config.type)
+                        if not step_handler:
+                            raise ValueError(
+                                f"Unknown step type: {sub_step_config.type}"
+                            )
+
+                        # Add item to context for this execution
+                        item_context = context.copy()
+                        item_context["item"] = item_value
+                        item_context["index"] = item_idx
+
+                        output = step_handler(sub_step_config, item_context)
+                        tokens = output.get("tokens_used", 0) if output else 0
+
+                        # Complete branch tracking
+                        tracker.complete_branch(execution_id, b_id, tokens)
+
+                        return {
+                            "item": item_value,
+                            "index": item_idx,
+                            "output": output,
+                        }
+                    except Exception as e:
+                        tracker.fail_branch(execution_id, b_id, str(e))
+                        raise
+
+                return handler
+
+            task = ParallelTask(
+                id=branch_id,
+                step_id=sub_step.id,
+                handler=make_handler(sub_step, item, idx, branch_id),
+                kwargs={"step_type": sub_step.type},
+            )
+            tasks.append(task)
+
+        # Rate limiting configuration from step params
+        adaptive_enabled = step.params.get("adaptive_rate_limiting", True)
+        distributed_enabled = step.params.get("distributed_rate_limiting", False)
+        backoff_factor = step.params.get("rate_limit_backoff_factor", 0.5)
+        recovery_threshold = step.params.get("rate_limit_recovery_threshold", 10)
+
+        # Use rate-limited executor with full configuration
+        from .rate_limited_executor import AdaptiveRateLimitConfig
+
+        adaptive_config = (
+            AdaptiveRateLimitConfig(
+                backoff_factor=backoff_factor,
+                recovery_threshold=recovery_threshold,
+            )
+            if adaptive_enabled
+            else None
+        )
+
+        executor = RateLimitedParallelExecutor(
+            strategy=ParallelStrategy.ASYNCIO,
+            max_workers=max_concurrent,
+            timeout=step.timeout_seconds or 300.0,
+            provider_limits={
+                "anthropic": step.params.get("anthropic_concurrent", 5),
+                "openai": step.params.get("openai_concurrent", 8),
+            },
+            adaptive=adaptive_enabled,
+            adaptive_config=adaptive_config,
+            distributed=distributed_enabled,
+            distributed_window=step.params.get("distributed_window", 60),
+            distributed_rpm={
+                "anthropic": step.params.get("anthropic_rpm", 60),
+                "openai": step.params.get("openai_rpm", 90),
+            },
+        )
+
+        results: list[dict] = []
+        errors: list[dict] = []
+        total_tokens = 0
+
+        def on_complete(task_id: str, result: any):
+            nonlocal total_tokens
+            results.append(result)
+            if isinstance(result, dict) and "output" in result:
+                total_tokens += result["output"].get("tokens_used", 0)
+
+        def on_error(task_id: str, error: Exception):
+            if collect_errors:
+                errors.append(
+                    {
+                        "task_id": task_id,
+                        "error": str(error),
+                    }
+                )
+
+        parallel_result = executor.execute_parallel(
+            tasks=tasks,
+            on_complete=on_complete,
+            on_error=on_error,
+            fail_fast=fail_fast,
+        )
+
+        # Capture rate limit stats before completing tracking
+        provider_stats = executor.get_provider_stats()
+
+        # Update tracker with rate limit state for each provider
+        for provider, stats in provider_stats.items():
+            if stats.get("total_429s", 0) > 0 or stats.get("is_throttled", False):
+                tracker.update_rate_limit_state(
+                    provider=provider,
+                    current_limit=stats.get("current_limit", 0),
+                    base_limit=stats.get("base_limit", 0),
+                    total_429s=stats.get("total_429s", 0),
+                    is_throttled=stats.get("is_throttled", False),
+                )
+
+        # Complete execution tracking
+        if parallel_result.failed:
+            tracker.fail_execution(execution_id)
+        else:
+            tracker.complete_execution(execution_id)
+
+        # Sort results by index
+        results.sort(key=lambda x: x.get("index", 0))
+
+        # Collect all results for output variable
+        all_results = [
+            r.get("output", {}).get("response", r.get("output", {})) for r in results
+        ]
+
+        return {
+            "results": all_results,
+            "detailed_results": results,
+            "errors": errors if collect_errors else [],
+            "successful": len(parallel_result.successful),
+            "failed": len(parallel_result.failed),
+            "cancelled": len(parallel_result.cancelled),
+            "tokens_used": total_tokens,
+            "duration_ms": parallel_result.total_duration_ms,
+            "execution_id": execution_id,
+            "rate_limit_stats": provider_stats,
+        }
+
+    def _execute_fan_in(self, step: StepConfig, context: dict) -> dict:
+        """Execute a fan-in (gather) step.
+
+        Aggregates results from a previous step (typically fan_out) and
+        optionally processes them through an aggregation step.
+
+        Params:
+            input: Expression that resolves to the input list (e.g., "${reviews}")
+            aggregation: "concat" | "claude_code" | "openai" | "custom"
+            aggregate_prompt: Prompt template for AI aggregation
+            separator: Separator for concat aggregation (default: "\\n")
+
+        Returns:
+            Dict with aggregated result
+        """
+        # Resolve input from context
+        input_expr = step.params.get("input", [])
+        if (
+            isinstance(input_expr, str)
+            and input_expr.startswith("${")
+            and input_expr.endswith("}")
+        ):
+            var_name = input_expr[2:-1]
+            input_data = context.get(var_name, [])
+        else:
+            input_data = input_expr
+
+        if not isinstance(input_data, list):
+            input_data = [input_data]
+
+        aggregation = step.params.get("aggregation", "concat")
+        aggregate_prompt = step.params.get("aggregate_prompt", "")
+
+        if aggregation == "concat":
+            separator = step.params.get("separator", "\n")
+            result = separator.join(str(item) for item in input_data)
+            return {
+                "response": result,
+                "aggregation_type": "concat",
+                "item_count": len(input_data),
+                "tokens_used": 0,
+            }
+
+        elif aggregation in ("claude_code", "openai"):
+            # Use AI to aggregate results
+            items_text = "\n---\n".join(str(item) for item in input_data)
+            prompt = aggregate_prompt.replace("${items}", items_text)
+
+            # Substitute other context variables
+            for key, value in context.items():
+                if isinstance(value, str):
+                    prompt = prompt.replace(f"${{{key}}}", value)
+
+            # Create sub-step for aggregation
+            agg_step_config = {
+                "id": f"{step.id}_aggregate",
+                "type": aggregation,
+                "params": {
+                    "prompt": prompt,
+                    "role": step.params.get("role", "analyst"),
+                    "model": step.params.get("model"),
+                    "max_tokens": step.params.get("max_tokens", 4096),
+                },
+            }
+            agg_step = StepConfig.from_dict(agg_step_config)
+
+            handler = self._handlers.get(aggregation)
+            if not handler:
+                raise ValueError(f"Unknown aggregation type: {aggregation}")
+
+            output = handler(agg_step, context)
+            return {
+                "response": output.get("response", ""),
+                "aggregation_type": aggregation,
+                "item_count": len(input_data),
+                "tokens_used": output.get("tokens_used", 0),
+            }
+
+        elif aggregation == "custom":
+            # Custom aggregation via callback
+            callback_name = step.params.get("callback")
+            if callback_name and callback_name in self.fallback_callbacks:
+                callback = self.fallback_callbacks[callback_name]
+                result = callback(step, context, None)
+                return {
+                    "response": result,
+                    "aggregation_type": "custom",
+                    "item_count": len(input_data),
+                    "tokens_used": 0,
+                }
+            raise ValueError(f"Custom callback '{callback_name}' not registered")
+
+        else:
+            raise ValueError(f"Unknown aggregation type: {aggregation}")
+
+    def _execute_map_reduce(self, step: StepConfig, context: dict) -> dict:
+        """Execute a map-reduce step.
+
+        Combines fan_out (map) and fan_in (reduce) in a single step.
+
+        Params:
+            items: Expression that resolves to a list
+            max_concurrent: Maximum concurrent map executions
+            map_step: Step configuration for map phase
+            reduce_step: Step configuration for reduce phase
+            fail_fast: If True, abort map phase on first failure
+
+        Returns:
+            Dict with final reduced result
+        """
+        # Resolve items
+        items_expr = step.params.get("items", [])
+        if (
+            isinstance(items_expr, str)
+            and items_expr.startswith("${")
+            and items_expr.endswith("}")
+        ):
+            var_name = items_expr[2:-1]
+            items = context.get(var_name, [])
+        else:
+            items = items_expr
+
+        if not isinstance(items, list):
+            raise ValueError(f"map_reduce items must be a list, got {type(items)}")
+
+        map_step_config = step.params.get("map_step", {})
+        reduce_step_config = step.params.get("reduce_step", {})
+
+        if not map_step_config:
+            raise ValueError("map_reduce requires map_step parameter")
+        if not reduce_step_config:
+            raise ValueError("map_reduce requires reduce_step parameter")
+
+        # Execute map phase using fan_out
+        fan_out_step = StepConfig(
+            id=f"{step.id}_map",
+            type="fan_out",
+            params={
+                "items": items,
+                "max_concurrent": step.params.get("max_concurrent", 5),
+                "step_template": map_step_config,
+                "fail_fast": step.params.get("fail_fast", False),
+            },
+            timeout_seconds=step.timeout_seconds,
+        )
+
+        map_result = self._execute_fan_out(fan_out_step, context)
+
+        if map_result["failed"] > 0 and step.params.get("fail_fast", False):
+            return {
+                "response": None,
+                "map_results": map_result["results"],
+                "map_errors": map_result.get("errors", []),
+                "phase": "map_failed",
+                "tokens_used": map_result["tokens_used"],
+            }
+
+        # Execute reduce phase using fan_in
+        # Put map results into context for reduce
+        reduce_context = context.copy()
+        reduce_context["map_results"] = map_result["results"]
+
+        # Substitute ${map_results} in reduce prompt
+        reduce_params = reduce_step_config.get("params", {}).copy()
+        if "prompt" in reduce_params:
+            items_text = "\n---\n".join(str(r) for r in map_result["results"])
+            reduce_params["prompt"] = reduce_params["prompt"].replace(
+                "${map_results}", items_text
+            )
+
+        fan_in_step = StepConfig(
+            id=f"{step.id}_reduce",
+            type="fan_in",
+            params={
+                "input": map_result["results"],
+                "aggregation": reduce_step_config.get("type", "claude_code"),
+                "aggregate_prompt": reduce_params.get("prompt", ""),
+                "role": reduce_params.get("role", "analyst"),
+                "model": reduce_params.get("model"),
+            },
+            timeout_seconds=step.timeout_seconds,
+        )
+
+        reduce_result = self._execute_fan_in(fan_in_step, reduce_context)
+
+        return {
+            "response": reduce_result.get("response", ""),
+            "map_results": map_result["results"],
+            "map_successful": map_result["successful"],
+            "map_failed": map_result["failed"],
+            "tokens_used": map_result["tokens_used"]
+            + reduce_result.get("tokens_used", 0),
+            "duration_ms": map_result.get("duration_ms", 0),
         }
 
     def get_context(self) -> dict:

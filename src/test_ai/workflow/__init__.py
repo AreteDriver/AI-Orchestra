@@ -6,6 +6,7 @@ Supports parallel execution, scheduling, and version control.
 
 from .loader import (
     WorkflowConfig,
+    WorkflowSettings,
     StepConfig,
     ConditionConfig,
     load_workflow,
@@ -45,9 +46,21 @@ from .versioning import (
     compare_versions,
 )
 from .version_manager import WorkflowVersionManager
+from .auto_parallel import (
+    DependencyGraph,
+    ParallelGroup,
+    build_dependency_graph,
+    find_parallel_groups,
+    analyze_parallelism,
+    get_step_execution_order,
+    can_run_parallel,
+    get_ready_steps,
+    validate_no_cycles,
+)
 
 __all__ = [
     "WorkflowConfig",
+    "WorkflowSettings",
     "StepConfig",
     "ConditionConfig",
     "load_workflow",
@@ -85,4 +98,14 @@ __all__ = [
     "compute_content_hash",
     "compare_versions",
     "WorkflowVersionManager",
+    # Auto-parallel analysis
+    "DependencyGraph",
+    "ParallelGroup",
+    "build_dependency_graph",
+    "find_parallel_groups",
+    "analyze_parallelism",
+    "get_step_execution_order",
+    "can_run_parallel",
+    "get_ready_steps",
+    "validate_no_cycles",
 ]

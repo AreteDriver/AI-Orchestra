@@ -9,6 +9,137 @@ When running workflows with multiple AI steps, Gorgon can execute them in parall
 - Adapting to rate limit (429) errors
 - Coordinating across multiple processes
 
+## Parallel Execution Patterns
+
+Gorgon provides four parallel execution patterns:
+
+| Pattern | Use Case |
+|---------|----------|
+| **Fan-Out** | Process a list of items concurrently |
+| **Fan-In** | Aggregate results from parallel executions |
+| **Map-Reduce** | Combined scatter-gather pattern |
+| **Auto-Parallel** | Automatic parallelization of independent steps |
+
+### Fan-Out (Scatter)
+
+Execute a step template for each item in a list:
+
+```yaml
+steps:
+  - id: review_files
+    type: fan_out
+    params:
+      items: "${code_files}"        # List to iterate
+      max_concurrent: 5
+      fail_fast: false
+      step_template:
+        type: claude_code
+        params:
+          role: reviewer
+          prompt: "Review: ${item}"   # ${item} = current item
+    outputs: [reviews]
+```
+
+**Template Variables:**
+- `${item}` - Current item value
+- `${index}` - Current item index (0-based)
+
+### Fan-In (Gather)
+
+Aggregate results from a previous step:
+
+```yaml
+steps:
+  - id: summarize
+    type: fan_in
+    depends_on: [review_files]
+    params:
+      input: "${reviews}"
+      aggregation: claude_code      # or: concat, openai
+      aggregate_prompt: "Summarize: ${items}"
+    outputs: [summary]
+```
+
+**Aggregation Types:**
+- `concat` - Join with separator
+- `claude_code` - Use Claude to aggregate
+- `openai` - Use OpenAI to aggregate
+
+### Map-Reduce
+
+Combined scatter-gather in a single step:
+
+```yaml
+steps:
+  - id: analyze_all
+    type: map_reduce
+    params:
+      items: "${files}"
+      max_concurrent: 5
+      map_step:
+        type: claude_code
+        params:
+          role: analyst
+          prompt: "Analyze: ${item}"
+      reduce_step:
+        type: claude_code
+        params:
+          role: reporter
+          prompt: "Combine: ${map_results}"
+    outputs: [final_analysis]
+```
+
+### Auto-Parallel
+
+Automatically run independent steps concurrently:
+
+```yaml
+name: My Workflow
+settings:
+  auto_parallel: true
+  auto_parallel_max_workers: 4
+
+steps:
+  - id: step_a
+    type: claude_code
+    params: { ... }
+
+  - id: step_b          # No depends_on = parallel with step_a
+    type: openai
+    params: { ... }
+
+  - id: step_c
+    depends_on: [step_a, step_b]   # Waits for both
+    params: { ... }
+```
+
+**How it works:**
+1. Builds dependency graph from `depends_on`
+2. Groups independent steps together
+3. Executes groups in parallel, respecting dependencies
+
+## Dashboard Monitoring
+
+The **Parallel Execution Monitor** page (`/parallel`) shows:
+
+- **Summary Metrics** - Active executions, success rate, branch counts
+- **Rate Limit Status** - Per-provider throttling gauges
+- **Active Executions** - Progress bars and branch details
+- **Recent History** - Completed executions with timing stats
+- **Performance Stats** - Duration histograms, token usage
+
+Access via: Dashboard sidebar > "Parallel"
+
+## Example Workflows
+
+See `workflows/examples/` for complete examples:
+
+- `fan_out_code_review.yaml` - Parallel code review
+- `map_reduce_analysis.yaml` - Log analysis pipeline
+- `auto_parallel_pipeline.yaml` - Multi-stage analysis
+
+---
+
 ## Quick Start
 
 ```python

@@ -62,11 +62,35 @@ class FallbackConfig:
 
 
 @dataclass
+class WorkflowSettings:
+    """Global settings for workflow execution."""
+
+    auto_parallel: bool = False
+    auto_parallel_max_workers: int = 4
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "WorkflowSettings":
+        return cls(
+            auto_parallel=data.get("auto_parallel", False),
+            auto_parallel_max_workers=data.get("auto_parallel_max_workers", 4),
+        )
+
+
+@dataclass
 class StepConfig:
     """Configuration for a workflow step."""
 
     id: str
-    type: Literal["claude_code", "openai", "shell", "parallel", "checkpoint"]
+    type: Literal[
+        "claude_code",
+        "openai",
+        "shell",
+        "parallel",
+        "checkpoint",
+        "fan_out",
+        "fan_in",
+        "map_reduce",
+    ]
     params: dict = field(default_factory=dict)
     condition: ConditionConfig | None = None
     on_failure: Literal[
@@ -131,11 +155,13 @@ class WorkflowConfig:
     metadata: dict = field(default_factory=dict)
     token_budget: int = 100000
     timeout_seconds: int = 3600
+    settings: WorkflowSettings = field(default_factory=WorkflowSettings)
 
     @classmethod
     def from_dict(cls, data: dict) -> WorkflowConfig:
         """Create WorkflowConfig from dictionary."""
         steps = [StepConfig.from_dict(s) for s in data.get("steps", [])]
+        settings = WorkflowSettings.from_dict(data.get("settings", {}))
 
         return cls(
             name=data["name"],
@@ -147,6 +173,7 @@ class WorkflowConfig:
             metadata=data.get("metadata", {}),
             token_budget=data.get("token_budget", 100000),
             timeout_seconds=data.get("timeout_seconds", 3600),
+            settings=settings,
         )
 
     def get_step(self, step_id: str) -> StepConfig | None:
@@ -199,6 +226,9 @@ WORKFLOW_SCHEMA = {
                             "shell",
                             "parallel",
                             "checkpoint",
+                            "fan_out",
+                            "fan_in",
+                            "map_reduce",
                         ],
                     },
                     "params": {"type": "object"},
@@ -381,7 +411,16 @@ def validate_workflow(data: dict) -> list[str]:
 
 
 VALID_STEP_TYPES = frozenset(
-    {"claude_code", "openai", "shell", "parallel", "checkpoint"}
+    {
+        "claude_code",
+        "openai",
+        "shell",
+        "parallel",
+        "checkpoint",
+        "fan_out",
+        "fan_in",
+        "map_reduce",
+    }
 )
 VALID_OPERATORS = frozenset(
     {"equals", "not_equals", "contains", "greater_than", "less_than"}

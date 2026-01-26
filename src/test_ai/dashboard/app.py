@@ -14,6 +14,8 @@ from test_ai.dashboard.monitoring_pages import (
     render_metrics_page,
     render_analytics_page,
     render_system_status,
+    render_parallel_execution_page,
+    render_parallel_status_sidebar,
 )
 
 
@@ -43,6 +45,7 @@ def render_sidebar():
     pages = {
         "Dashboard": "📊",
         "Monitoring": "🔴",
+        "Parallel": "🔀",
         "Agents": "🤖",
         "Metrics": "📈",
         "Analytics": "🔬",
@@ -58,6 +61,7 @@ def render_sidebar():
 
     # Show system status in sidebar
     render_system_status()
+    render_parallel_status_sidebar()
 
     return page
 
@@ -370,6 +374,7 @@ def render_logs_page():
 _PAGE_RENDERERS = {
     "Dashboard": render_dashboard_page,
     "Monitoring": render_monitoring_page,
+    "Parallel": render_parallel_execution_page,
     "Agents": render_agents_page,
     "Metrics": render_metrics_page,
     "Analytics": render_analytics_page,
