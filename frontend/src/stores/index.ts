@@ -165,7 +165,7 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>((set) => ({
 
   onConnect: (connection) =>
     set((state) => ({
-      edges: addEdge({ ...connection, type: 'default' }, state.edges),
+      edges: addEdge({ ...connection, type: 'variable' }, state.edges),
       isDirty: true,
     })),
 

@@ -14,6 +14,7 @@ import '@xyflow/react/dist/style.css';
 
 import { useWorkflowBuilderStore } from '@/stores';
 import { nodeTypes } from './nodes';
+import { edgeTypes } from './edges';
 
 export function WorkflowCanvas() {
   const {
@@ -67,11 +68,12 @@ export function WorkflowCanvas() {
         onConnect={handleConnect}
         onSelectionChange={handleSelectionChange}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         fitView
         snapToGrid
         snapGrid={[16, 16]}
         defaultEdgeOptions={{
-          type: 'default',
+          type: 'variable',
           animated: true,
         }}
         className="bg-background"

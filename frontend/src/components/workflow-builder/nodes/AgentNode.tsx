@@ -65,6 +65,24 @@ function AgentNodeComponent({ data, selected }: NodeProps<AgentNodeType>) {
             {data.prompt}
           </p>
         )}
+        {/* Output variables */}
+        {data.outputs && data.outputs.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1">
+            {data.outputs.slice(0, 3).map((output) => (
+              <span
+                key={output}
+                className="inline-flex items-center rounded bg-indigo-100 dark:bg-indigo-900/30 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 dark:text-indigo-300"
+              >
+                {output}
+              </span>
+            ))}
+            {data.outputs.length > 3 && (
+              <span className="text-[10px] text-muted-foreground">
+                +{data.outputs.length - 3}
+              </span>
+            )}
+          </div>
+        )}
         {data.onFailure && data.onFailure !== 'stop' && (
           <span className="mt-2 inline-block rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
             On fail: {data.onFailure}

@@ -1,5 +1,5 @@
-import { useCallback } from 'react';
-import { X, Trash2, Terminal, PauseCircle, Layers, Split, Merge, GitBranch } from 'lucide-react';
+import { useCallback, useMemo } from 'react';
+import { X, Trash2, Terminal, PauseCircle, Layers, Split, Merge, GitBranch, Variable } from 'lucide-react';
 import { useWorkflowBuilderStore } from '@/stores';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -548,6 +548,108 @@ function MapReduceProperties({
   );
 }
 
+// Available Variables Component
+function AvailableVariables({
+  nodeId,
+  onInsert,
+}: {
+  nodeId: string;
+  onInsert?: (variable: string) => void;
+}) {
+  const { nodes, edges } = useWorkflowBuilderStore();
+
+  // Find all upstream nodes by traversing edges backwards
+  const upstreamVariables = useMemo(() => {
+    const variables: { nodeId: string; nodeName: string; outputs: string[] }[] = [];
+    const visited = new Set<string>();
+
+    // BFS to find all upstream nodes
+    const queue: string[] = [];
+
+    // Find all edges pointing to this node
+    edges
+      .filter((e) => e.target === nodeId)
+      .forEach((e) => queue.push(e.source));
+
+    while (queue.length > 0) {
+      const currentId = queue.shift()!;
+      if (visited.has(currentId)) continue;
+      visited.add(currentId);
+
+      const node = nodes.find((n) => n.id === currentId);
+      if (node) {
+        const data = node.data;
+        let outputs: string[] = [];
+
+        // Get outputs based on node type
+        if ('outputs' in data && Array.isArray(data.outputs) && data.outputs.length > 0) {
+          outputs = data.outputs;
+        } else {
+          // Use node ID as implicit output
+          outputs = [currentId];
+        }
+
+        if (outputs.length > 0) {
+          variables.push({
+            nodeId: currentId,
+            nodeName: ('name' in data ? data.name : currentId) as string,
+            outputs,
+          });
+        }
+
+        // Add upstream nodes of this node
+        edges
+          .filter((e) => e.target === currentId)
+          .forEach((e) => queue.push(e.source));
+      }
+    }
+
+    return variables;
+  }, [nodeId, nodes, edges]);
+
+  if (upstreamVariables.length === 0) {
+    return null;
+  }
+
+  const handleCopy = (variable: string) => {
+    navigator.clipboard.writeText(`\${${variable}}`);
+    if (onInsert) {
+      onInsert(variable);
+    }
+  };
+
+  return (
+    <div className="space-y-2 border-t pt-4">
+      <div className="flex items-center gap-2">
+        <Variable className="h-4 w-4 text-indigo-500" />
+        <Label className="text-indigo-600 dark:text-indigo-400">Available Variables</Label>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Click to copy. Use in prompts as ${'{variable}'}.
+      </p>
+      <div className="space-y-2 max-h-48 overflow-y-auto">
+        {upstreamVariables.map(({ nodeId: nId, nodeName, outputs }) => (
+          <div key={nId} className="space-y-1">
+            <p className="text-xs font-medium text-muted-foreground">{nodeName}</p>
+            <div className="flex flex-wrap gap-1">
+              {outputs.map((output) => (
+                <button
+                  key={output}
+                  onClick={() => handleCopy(output)}
+                  className="inline-flex items-center rounded bg-indigo-100 dark:bg-indigo-900/30 px-2 py-0.5 text-xs font-medium text-indigo-700 dark:text-indigo-300 hover:bg-indigo-200 dark:hover:bg-indigo-900/50 transition-colors cursor-pointer"
+                  title={`Copy \${${output}}`}
+                >
+                  {output}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function PropertyPanel() {
   const { nodes, selectedNodeId, updateNodeData, deleteNode, selectNode } =
     useWorkflowBuilderStore();
@@ -683,6 +785,9 @@ export function PropertyPanel() {
             onChange={(field, value) => handleChange(field as string, value)}
           />
         )}
+
+        {/* Available Variables from upstream nodes */}
+        <AvailableVariables nodeId={selectedNode.id} />
 
         {/* Delete Button */}
         <div className="pt-4 border-t">
