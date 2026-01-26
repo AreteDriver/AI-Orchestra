@@ -6,6 +6,18 @@
 import type { AgentRole } from './index';
 
 // -----------------------------------------------------------------------------
+// Condition Types
+// -----------------------------------------------------------------------------
+
+export type ConditionOperator = 'equals' | 'not_equals' | 'contains' | 'greater_than' | 'less_than';
+
+export interface NodeCondition {
+  field: string;
+  operator: ConditionOperator;
+  value: string | number | boolean;
+}
+
+// -----------------------------------------------------------------------------
 // Node Data Types
 // ReactFlow requires data to extend Record<string, unknown>
 // -----------------------------------------------------------------------------
@@ -18,6 +30,7 @@ export interface AgentNodeData extends Record<string, unknown> {
   outputs?: string[];
   onFailure?: 'stop' | 'continue' | 'retry';
   maxRetries?: number;
+  condition?: NodeCondition;
 }
 
 export interface ShellNodeData extends Record<string, unknown> {
@@ -26,6 +39,7 @@ export interface ShellNodeData extends Record<string, unknown> {
   command: string;
   allowFailure?: boolean;
   timeout?: number;
+  condition?: NodeCondition;
 }
 
 export interface CheckpointNodeData extends Record<string, unknown> {

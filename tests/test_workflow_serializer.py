@@ -428,3 +428,144 @@ steps:
         config = load_workflow(workflow_file, trusted_dir=tmp_path)
 
         assert config.steps[0].params["role"] == role
+
+
+class TestConditionalBranching:
+    """Test conditional branching from visual builder."""
+
+    def test_agent_with_condition(self, tmp_path):
+        """Test agent node with condition."""
+        yaml_content = """
+name: Conditional Agent Test
+version: "1.0"
+steps:
+  - id: check_type
+    type: claude_code
+    params:
+      role: planner
+      prompt: "Determine file type"
+    outputs:
+      - file_type
+
+  - id: handle_python
+    type: claude_code
+    params:
+      role: builder
+      prompt: "Handle Python file"
+    condition:
+      field: "file_type"
+      operator: equals
+      value: "python"
+    depends_on: check_type
+"""
+        workflow_file = tmp_path / "conditional_agent.yaml"
+        workflow_file.write_text(yaml_content)
+
+        config = load_workflow(workflow_file, trusted_dir=tmp_path)
+
+        assert len(config.steps) == 2
+        assert config.steps[1].condition is not None
+        assert config.steps[1].condition.field == "file_type"
+        assert config.steps[1].condition.operator == "equals"
+        assert config.steps[1].condition.value == "python"
+
+    def test_shell_with_condition(self, tmp_path):
+        """Test shell node with condition."""
+        yaml_content = """
+name: Conditional Shell Test
+version: "1.0"
+steps:
+  - id: check_status
+    type: claude_code
+    params:
+      role: analyst
+      prompt: "Check status"
+    outputs:
+      - should_deploy
+
+  - id: deploy
+    type: shell
+    params:
+      command: "make deploy"
+    condition:
+      field: "should_deploy"
+      operator: equals
+      value: true
+    depends_on: check_status
+"""
+        workflow_file = tmp_path / "conditional_shell.yaml"
+        workflow_file.write_text(yaml_content)
+
+        config = load_workflow(workflow_file, trusted_dir=tmp_path)
+
+        assert config.steps[1].type == "shell"
+        assert config.steps[1].condition is not None
+        assert config.steps[1].condition.field == "should_deploy"
+        assert config.steps[1].condition.value is True
+
+    @pytest.mark.parametrize("operator", [
+        "equals", "not_equals", "contains", "greater_than", "less_than"
+    ])
+    def test_condition_operators(self, operator, tmp_path):
+        """Test all condition operators."""
+        yaml_content = f"""
+name: Operator Test
+version: "1.0"
+steps:
+  - id: source
+    type: claude_code
+    params:
+      role: analyst
+      prompt: "Analyze"
+    outputs:
+      - result
+
+  - id: conditional
+    type: claude_code
+    params:
+      role: builder
+      prompt: "Build conditionally"
+    condition:
+      field: "result"
+      operator: {operator}
+      value: "test_value"
+    depends_on: source
+"""
+        workflow_file = tmp_path / f"operator_{operator}.yaml"
+        workflow_file.write_text(yaml_content)
+
+        config = load_workflow(workflow_file, trusted_dir=tmp_path)
+
+        assert config.steps[1].condition.operator == operator
+
+    def test_condition_with_numeric_value(self, tmp_path):
+        """Test condition with numeric comparison."""
+        yaml_content = """
+name: Numeric Condition Test
+version: "1.0"
+steps:
+  - id: count
+    type: claude_code
+    params:
+      role: analyst
+      prompt: "Count items"
+    outputs:
+      - item_count
+
+  - id: process_large
+    type: claude_code
+    params:
+      role: builder
+      prompt: "Process large dataset"
+    condition:
+      field: "item_count"
+      operator: greater_than
+      value: 100
+    depends_on: count
+"""
+        workflow_file = tmp_path / "numeric_condition.yaml"
+        workflow_file.write_text(yaml_content)
+
+        config = load_workflow(workflow_file, trusted_dir=tmp_path)
+
+        assert config.steps[1].condition.value == 100

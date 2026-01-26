@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
-import { Terminal, AlertTriangle } from 'lucide-react';
+import { Terminal, AlertTriangle, GitBranch } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { ShellNodeData } from '@/types/workflow-builder';
 
@@ -47,6 +47,15 @@ function ShellNodeComponent({ data, selected }: NodeProps<ShellNodeType>) {
           <span className="mt-2 inline-block rounded bg-zinc-800 px-1.5 py-0.5 text-xs text-zinc-400">
             Timeout: {data.timeout}s
           </span>
+        )}
+        {/* Condition badge */}
+        {data.condition && (
+          <div className="mt-2 flex items-center gap-1">
+            <GitBranch className="h-3 w-3 text-amber-500" />
+            <span className="inline-flex items-center rounded bg-amber-900/50 px-1.5 py-0.5 text-[10px] font-medium text-amber-300">
+              if {data.condition.field} {data.condition.operator.replace('_', ' ')} {String(data.condition.value)}
+            </span>
+          </div>
         )}
       </div>
 

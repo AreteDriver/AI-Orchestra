@@ -96,6 +96,11 @@ function nodeToStep(node: Node<WorkflowNodeData>, edges: Edge[]): YamlStep {
           role: agentData.role,
           prompt: agentData.prompt || '',
         },
+        condition: agentData.condition ? {
+          field: agentData.condition.field,
+          operator: agentData.condition.operator,
+          value: agentData.condition.value,
+        } : undefined,
         outputs: agentData.outputs,
         on_failure: mapOnFailure(agentData.onFailure),
         max_retries: agentData.maxRetries,
@@ -112,6 +117,11 @@ function nodeToStep(node: Node<WorkflowNodeData>, edges: Edge[]): YamlStep {
           command: shellData.command,
           allow_failure: shellData.allowFailure,
         },
+        condition: shellData.condition ? {
+          field: shellData.condition.field,
+          operator: shellData.condition.operator,
+          value: shellData.condition.value,
+        } : undefined,
         timeout_seconds: shellData.timeout,
       };
     }
@@ -355,6 +365,17 @@ export function serializeToYamlString(workflow: YamlWorkflow): string {
       }
     }
 
+    if (step.condition) {
+      lines.push('    condition:');
+      lines.push(`      field: "${step.condition.field}"`);
+      lines.push(`      operator: ${step.condition.operator}`);
+      if (typeof step.condition.value === 'string') {
+        lines.push(`      value: "${step.condition.value}"`);
+      } else {
+        lines.push(`      value: ${step.condition.value}`);
+      }
+    }
+
     if (step.on_failure) lines.push(`    on_failure: ${step.on_failure}`);
     if (step.max_retries !== undefined) lines.push(`    max_retries: ${step.max_retries}`);
     if (step.timeout_seconds !== undefined) lines.push(`    timeout_seconds: ${step.timeout_seconds}`);
@@ -400,6 +421,11 @@ function stepToNodeData(step: YamlStep): WorkflowNodeData {
         outputs: step.outputs,
         onFailure: mapOnFailureReverse(step.on_failure),
         maxRetries: step.max_retries,
+        condition: step.condition ? {
+          field: step.condition.field,
+          operator: step.condition.operator,
+          value: step.condition.value as string | number | boolean,
+        } : undefined,
       } satisfies AgentNodeData;
     }
 
@@ -410,6 +436,11 @@ function stepToNodeData(step: YamlStep): WorkflowNodeData {
         command: (step.params?.command as string) || '',
         allowFailure: step.params?.allow_failure as boolean,
         timeout: step.timeout_seconds,
+        condition: step.condition ? {
+          field: step.condition.field,
+          operator: step.condition.operator,
+          value: step.condition.value as string | number | boolean,
+        } : undefined,
       } satisfies ShellNodeData;
     }
 

@@ -24,8 +24,128 @@ import {
   type FanInNodeData,
   type MapReduceNodeData,
   type WorkflowNodeData,
+  type NodeCondition,
+  type ConditionOperator,
 } from '@/types/workflow-builder';
 import type { AgentRole } from '@/types';
+
+// Condition Editor Component
+function ConditionEditor({
+  condition,
+  onChange,
+  onRemove,
+}: {
+  condition?: NodeCondition;
+  onChange: (condition: NodeCondition | undefined) => void;
+  onRemove: () => void;
+}) {
+  const operators: { value: ConditionOperator; label: string }[] = [
+    { value: 'equals', label: 'equals' },
+    { value: 'not_equals', label: 'not equals' },
+    { value: 'contains', label: 'contains' },
+    { value: 'greater_than', label: 'greater than' },
+    { value: 'less_than', label: 'less than' },
+  ];
+
+  const handleEnable = () => {
+    onChange({
+      field: '',
+      operator: 'equals',
+      value: '',
+    });
+  };
+
+  if (!condition) {
+    return (
+      <div className="space-y-2">
+        <Label>Conditional Execution</Label>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleEnable}
+          className="w-full gap-2"
+        >
+          <GitBranch className="h-4 w-4" />
+          Add Condition
+        </Button>
+        <p className="text-xs text-muted-foreground">
+          Only run this step when a condition is met
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3 rounded-md border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <GitBranch className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+          <Label className="text-amber-700 dark:text-amber-300">Condition</Label>
+        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={onRemove}
+          className="h-6 w-6 text-amber-600 hover:text-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900/30"
+        >
+          <X className="h-4 w-4" />
+        </Button>
+      </div>
+
+      {/* Field */}
+      <div className="space-y-1">
+        <Label htmlFor="condition-field" className="text-xs">Variable</Label>
+        <Input
+          id="condition-field"
+          value={condition.field}
+          onChange={(e) => onChange({ ...condition, field: e.target.value })}
+          placeholder="variable_name"
+          className="font-mono text-sm"
+        />
+      </div>
+
+      {/* Operator */}
+      <div className="space-y-1">
+        <Label htmlFor="condition-operator" className="text-xs">Operator</Label>
+        <Select
+          id="condition-operator"
+          value={condition.operator}
+          onChange={(e) => onChange({ ...condition, operator: e.target.value as ConditionOperator })}
+        >
+          {operators.map((op) => (
+            <option key={op.value} value={op.value}>
+              {op.label}
+            </option>
+          ))}
+        </Select>
+      </div>
+
+      {/* Value */}
+      <div className="space-y-1">
+        <Label htmlFor="condition-value" className="text-xs">Value</Label>
+        <Input
+          id="condition-value"
+          value={String(condition.value)}
+          onChange={(e) => {
+            // Try to parse as number or boolean
+            let value: string | number | boolean = e.target.value;
+            if (e.target.value === 'true') value = true;
+            else if (e.target.value === 'false') value = false;
+            else if (!isNaN(Number(e.target.value)) && e.target.value.trim() !== '') {
+              value = Number(e.target.value);
+            }
+            onChange({ ...condition, value });
+          }}
+          placeholder="expected_value"
+        />
+      </div>
+
+      <p className="text-xs text-amber-600 dark:text-amber-400">
+        Step runs only if: {condition.field || '?'} {condition.operator.replace('_', ' ')} {String(condition.value) || '?'}
+      </p>
+    </div>
+  );
+}
 
 // Agent Node Properties
 function AgentProperties({
@@ -131,6 +251,13 @@ function AgentProperties({
           Comma-separated list of output variable names
         </p>
       </div>
+
+      {/* Condition */}
+      <ConditionEditor
+        condition={data.condition}
+        onChange={(condition) => onChange('condition', condition)}
+        onRemove={() => onChange('condition', undefined)}
+      />
     </>
   );
 }
@@ -200,6 +327,13 @@ function ShellProperties({
           Maximum execution time (1-3600 seconds)
         </p>
       </div>
+
+      {/* Condition */}
+      <ConditionEditor
+        condition={data.condition}
+        onChange={(condition) => onChange('condition', condition)}
+        onRemove={() => onChange('condition', undefined)}
+      />
     </>
   );
 }

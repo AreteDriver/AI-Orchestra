@@ -10,6 +10,7 @@ import {
   BarChart2,
   PieChart,
   FileBarChart,
+  GitBranch,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { AgentNodeData } from '@/types/workflow-builder';
@@ -64,6 +65,15 @@ function AgentNodeComponent({ data, selected }: NodeProps<AgentNodeType>) {
           <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
             {data.prompt}
           </p>
+        )}
+        {/* Condition badge */}
+        {data.condition && (
+          <div className="mt-2 flex items-center gap-1">
+            <GitBranch className="h-3 w-3 text-amber-600 dark:text-amber-400" />
+            <span className="inline-flex items-center rounded bg-amber-100 dark:bg-amber-900/30 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300">
+              if {data.condition.field} {data.condition.operator.replace('_', ' ')} {String(data.condition.value)}
+            </span>
+          </div>
         )}
         {/* Output variables */}
         {data.outputs && data.outputs.length > 0 && (
