@@ -1,0 +1,9 @@
+# Gitleaks configuration
+# Allow test data in test files that intentionally contain fake secrets
+# for testing sanitization and security features
+
+[allowlist]
+# Test files contain intentional fake secrets for testing sanitization
+paths = [
+    '''tests/test_logging_config\.py''',
+]
