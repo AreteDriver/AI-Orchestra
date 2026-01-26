@@ -14,6 +14,12 @@ import {
   createCheckpointNodeData,
   type AgentNodeData,
 } from '@/types/workflow-builder';
+import {
+  exportToYaml,
+  toYamlString,
+  parseYamlString,
+  importFromYaml,
+} from '@/lib/workflow-serializer';
 import type { AgentRole, WorkflowStep } from '@/types';
 
 function WorkflowBuilderContent() {
@@ -24,6 +30,7 @@ function WorkflowBuilderContent() {
 
   const {
     nodes,
+    edges,
     workflowId,
     workflowName,
     addNode,
@@ -110,6 +117,44 @@ function WorkflowBuilderContent() {
     [screenToFlowPosition, addNode]
   );
 
+  const handleExportYaml = useCallback(() => {
+    try {
+      const workflow = exportToYaml(nodes, edges, workflowName);
+      const yamlString = toYamlString(workflow);
+
+      // Create and download file
+      const blob = new Blob([yamlString], { type: 'text/yaml' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${workflowName.toLowerCase().replace(/\s+/g, '-')}.yaml`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Failed to export workflow:', error);
+      alert(error instanceof Error ? error.message : 'Failed to export workflow');
+    }
+  }, [nodes, edges, workflowName]);
+
+  const handleImportYaml = useCallback((yamlString: string) => {
+    try {
+      const workflow = parseYamlString(yamlString);
+      const { nodes: importedNodes, edges: importedEdges } = importFromYaml(workflow);
+
+      loadWorkflow(
+        null as unknown as string, // No ID for imported workflows
+        workflow.name,
+        importedNodes,
+        importedEdges
+      );
+    } catch (error) {
+      console.error('Failed to import workflow:', error);
+      alert(error instanceof Error ? error.message : 'Failed to import workflow');
+    }
+  }, [loadWorkflow]);
+
   const handleSave = useCallback(async () => {
     // Convert nodes/edges to workflow format
     const steps: Partial<WorkflowStep>[] = nodes.map((node) => {
@@ -150,6 +195,8 @@ function WorkflowBuilderContent() {
     <div className="flex h-[calc(100vh-4rem)] flex-col">
       <WorkflowToolbar
         onSave={handleSave}
+        onExportYaml={handleExportYaml}
+        onImportYaml={handleImportYaml}
         isSaving={createWorkflow.isPending || updateWorkflow.isPending}
       />
       <div className="flex flex-1 overflow-hidden">

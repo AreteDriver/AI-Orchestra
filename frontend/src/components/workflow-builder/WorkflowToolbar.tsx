@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Save, AlertTriangle, AlertCircle, CheckCircle, ChevronDown } from 'lucide-react';
+import { useState, useRef } from 'react';
+import { Save, AlertTriangle, AlertCircle, CheckCircle, ChevronDown, Download, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useWorkflowBuilderStore } from '@/stores';
 import { useWorkflowValidation } from './hooks/useWorkflowValidation';
@@ -7,14 +7,35 @@ import { cn } from '@/lib/utils';
 
 interface WorkflowToolbarProps {
   onSave: () => void;
+  onExportYaml?: () => void;
+  onImportYaml?: (yamlString: string) => void;
   isSaving?: boolean;
 }
 
-export function WorkflowToolbar({ onSave, isSaving }: WorkflowToolbarProps) {
+export function WorkflowToolbar({ onSave, onExportYaml, onImportYaml, isSaving }: WorkflowToolbarProps) {
   const { isDirty, workflowName, setWorkflowName, validationErrors, selectNode } =
     useWorkflowBuilderStore();
   const { validate } = useWorkflowValidation();
   const [showErrors, setShowErrors] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleImportClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file && onImportYaml) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const content = e.target?.result as string;
+        onImportYaml(content);
+      };
+      reader.readAsText(file);
+    }
+    // Reset input so the same file can be selected again
+    event.target.value = '';
+  };
 
   const errorCount = validationErrors.filter((e) => e.severity === 'error').length;
   const warningCount = validationErrors.filter((e) => e.severity === 'warning').length;
@@ -96,6 +117,42 @@ export function WorkflowToolbar({ onSave, isSaving }: WorkflowToolbarProps) {
               <CheckCircle className="h-4 w-4" />
               Validate
             </Button>
+          )}
+
+          {/* YAML Export/Import */}
+          {onExportYaml && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onExportYaml}
+              className="gap-2"
+              title="Export as YAML"
+            >
+              <Download className="h-4 w-4" />
+              Export
+            </Button>
+          )}
+
+          {onImportYaml && (
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".yaml,.yml"
+                onChange={handleFileChange}
+                className="hidden"
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleImportClick}
+                className="gap-2"
+                title="Import from YAML"
+              >
+                <Upload className="h-4 w-4" />
+                Import
+              </Button>
+            </>
           )}
 
           <Button
