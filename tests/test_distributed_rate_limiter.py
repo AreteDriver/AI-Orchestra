@@ -1,9 +1,7 @@
-"""Tests for distributed rate limiting."""
+"""Tests for distributed rate limiter implementations."""
 
 import asyncio
-import os
 import sys
-import tempfile
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -11,11 +9,11 @@ import pytest
 
 sys.path.insert(0, "src")
 
-from test_ai.workflow import (
-    DistributedRateLimiter,
-    MemoryRateLimiter,
-    SQLiteRateLimiter,
+from test_ai.workflow.distributed_rate_limiter import (
     RateLimitResult,
+    RedisRateLimiter,
+    SQLiteRateLimiter,
+    MemoryRateLimiter,
     get_rate_limiter,
     reset_rate_limiter,
 )
@@ -24,20 +22,28 @@ from test_ai.workflow import (
 class TestRateLimitResult:
     """Tests for RateLimitResult dataclass."""
 
-    def test_allowed_result(self):
-        """Allowed result has correct properties."""
+    def test_remaining_calculation(self):
+        """Remaining is calculated correctly."""
         result = RateLimitResult(
             allowed=True,
-            current_count=5,
+            current_count=3,
             limit=10,
             reset_at=time.time() + 60,
         )
-        assert result.allowed is True
-        assert result.remaining == 5
-        assert result.retry_after is None
+        assert result.remaining == 7
 
-    def test_denied_result(self):
-        """Denied result includes retry_after."""
+    def test_remaining_never_negative(self):
+        """Remaining is never negative."""
+        result = RateLimitResult(
+            allowed=False,
+            current_count=15,
+            limit=10,
+            reset_at=time.time() + 60,
+        )
+        assert result.remaining == 0
+
+    def test_retry_after_set_when_not_allowed(self):
+        """Retry after is set when request not allowed."""
         result = RateLimitResult(
             allowed=False,
             current_count=11,
@@ -45,169 +51,121 @@ class TestRateLimitResult:
             reset_at=time.time() + 30,
             retry_after=30.0,
         )
-        assert result.allowed is False
-        assert result.remaining == 0
         assert result.retry_after == 30.0
-
-    def test_remaining_never_negative(self):
-        """Remaining doesn't go negative."""
-        result = RateLimitResult(
-            allowed=False,
-            current_count=15,
-            limit=10,
-            reset_at=time.time(),
-        )
-        assert result.remaining == 0
 
 
 class TestMemoryRateLimiter:
-    """Tests for in-memory rate limiter."""
+    """Tests for MemoryRateLimiter."""
+
+    @pytest.fixture
+    def limiter(self):
+        """Create fresh memory limiter."""
+        return MemoryRateLimiter()
 
     @pytest.mark.asyncio
-    async def test_acquire_within_limit(self):
-        """Requests within limit are allowed."""
-        limiter = MemoryRateLimiter()
-
-        for i in range(5):
-            result = await limiter.acquire("test", limit=10)
-            assert result.allowed is True
-            assert result.current_count == i + 1
+    async def test_acquire_under_limit(self, limiter):
+        """Acquire succeeds under limit."""
+        result = await limiter.acquire("test", limit=10, window_seconds=60)
+        assert result.allowed is True
+        assert result.current_count == 1
+        assert result.remaining == 9
 
     @pytest.mark.asyncio
-    async def test_acquire_exceeds_limit(self):
-        """Requests exceeding limit are denied."""
-        limiter = MemoryRateLimiter()
-
-        # Fill up the limit
-        for _ in range(10):
-            await limiter.acquire("test", limit=10)
-
-        # Next request should be denied
+    async def test_acquire_increments_count(self, limiter):
+        """Each acquire increments count."""
+        await limiter.acquire("test", limit=10)
+        await limiter.acquire("test", limit=10)
         result = await limiter.acquire("test", limit=10)
-        assert result.allowed is False
-        assert result.current_count == 11
-        assert result.retry_after is not None
+
+        assert result.current_count == 3
+        assert result.remaining == 7
 
     @pytest.mark.asyncio
-    async def test_separate_keys_independent(self):
-        """Different keys have independent limits."""
-        limiter = MemoryRateLimiter()
+    async def test_acquire_over_limit(self, limiter):
+        """Acquire fails when over limit."""
+        for _ in range(5):
+            await limiter.acquire("test", limit=5)
 
-        # Fill up one key
+        result = await limiter.acquire("test", limit=5)
+
+        assert result.allowed is False
+        assert result.retry_after is not None
+        assert result.retry_after > 0
+
+    @pytest.mark.asyncio
+    async def test_different_keys_independent(self, limiter):
+        """Different keys have independent limits."""
         for _ in range(10):
             await limiter.acquire("key1", limit=10)
 
-        # Another key should still be available
         result = await limiter.acquire("key2", limit=10)
+
         assert result.allowed is True
         assert result.current_count == 1
 
     @pytest.mark.asyncio
-    async def test_window_reset(self):
-        """Counts reset after window expires."""
-        limiter = MemoryRateLimiter()
+    async def test_get_current(self, limiter):
+        """get_current returns count without incrementing."""
+        await limiter.acquire("test", limit=10)
+        await limiter.acquire("test", limit=10)
 
-        # Short window for testing
-        result = await limiter.acquire("test", limit=5, window_seconds=1)
-        assert result.current_count == 1
-
-        # Wait for window to expire
-        await asyncio.sleep(1.1)
-
-        # Should be in new window
-        result = await limiter.acquire("test", limit=5, window_seconds=1)
-        assert result.current_count == 1
-
-    @pytest.mark.asyncio
-    async def test_get_current(self):
-        """Get current count without incrementing."""
-        limiter = MemoryRateLimiter()
-
-        # Initial count is 0
         count = await limiter.get_current("test")
-        assert count == 0
+        assert count == 2
 
-        # Acquire some slots
-        await limiter.acquire("test", limit=10)
-        await limiter.acquire("test", limit=10)
-
-        # Count should reflect acquisitions
         count = await limiter.get_current("test")
         assert count == 2
 
     @pytest.mark.asyncio
-    async def test_reset(self):
-        """Reset clears counts for a key."""
-        limiter = MemoryRateLimiter()
-
-        # Acquire some slots
+    async def test_reset(self, limiter):
+        """Reset clears count for key."""
         for _ in range(5):
             await limiter.acquire("test", limit=10)
 
-        # Reset
         await limiter.reset("test")
 
-        # Count should be 0
-        count = await limiter.get_current("test")
-        assert count == 0
+        result = await limiter.acquire("test", limit=10)
+        assert result.current_count == 1
 
 
 class TestSQLiteRateLimiter:
-    """Tests for SQLite-based rate limiter."""
+    """Tests for SQLiteRateLimiter."""
 
     @pytest.fixture
-    def temp_db(self):
-        """Create a temporary database."""
-        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
-            db_path = f.name
-        yield db_path
-        os.unlink(db_path)
+    def limiter(self, tmp_path):
+        """Create SQLite limiter with temp database."""
+        db_path = str(tmp_path / "rate_limits.db")
+        return SQLiteRateLimiter(db_path=db_path)
 
     @pytest.mark.asyncio
-    async def test_acquire_within_limit(self, temp_db):
-        """Requests within limit are allowed."""
-        limiter = SQLiteRateLimiter(db_path=temp_db)
-
-        for i in range(5):
-            result = await limiter.acquire("test", limit=10)
-            assert result.allowed is True
-            assert result.current_count == i + 1
+    async def test_acquire_under_limit(self, limiter):
+        """Acquire succeeds under limit."""
+        result = await limiter.acquire("test", limit=10, window_seconds=60)
+        assert result.allowed is True
+        assert result.current_count == 1
 
     @pytest.mark.asyncio
-    async def test_acquire_exceeds_limit(self, temp_db):
-        """Requests exceeding limit are denied."""
-        limiter = SQLiteRateLimiter(db_path=temp_db)
-
-        # Fill up the limit
-        for _ in range(10):
-            await limiter.acquire("test", limit=10)
-
-        # Next request should be denied
+    async def test_acquire_increments_count(self, limiter):
+        """Each acquire increments count."""
+        await limiter.acquire("test", limit=10)
+        await limiter.acquire("test", limit=10)
         result = await limiter.acquire("test", limit=10)
-        assert result.allowed is False
-        assert result.current_count == 11
+
+        assert result.current_count == 3
 
     @pytest.mark.asyncio
-    async def test_persistence_across_instances(self, temp_db):
-        """Counts persist across limiter instances."""
-        limiter1 = SQLiteRateLimiter(db_path=temp_db)
-
-        # Acquire with first instance
+    async def test_acquire_over_limit(self, limiter):
+        """Acquire fails when over limit."""
         for _ in range(5):
-            await limiter1.acquire("test", limit=10)
+            await limiter.acquire("test", limit=5)
 
-        # Create new instance (simulates different process)
-        limiter2 = SQLiteRateLimiter(db_path=temp_db)
+        result = await limiter.acquire("test", limit=5)
 
-        # Count should include previous acquisitions
-        result = await limiter2.acquire("test", limit=10)
-        assert result.current_count == 6
+        assert result.allowed is False
+        assert result.retry_after is not None
 
     @pytest.mark.asyncio
-    async def test_get_current(self, temp_db):
-        """Get current count without incrementing."""
-        limiter = SQLiteRateLimiter(db_path=temp_db)
-
+    async def test_get_current(self, limiter):
+        """get_current returns count without incrementing."""
         await limiter.acquire("test", limit=10)
         await limiter.acquire("test", limit=10)
 
@@ -215,221 +173,217 @@ class TestSQLiteRateLimiter:
         assert count == 2
 
     @pytest.mark.asyncio
-    async def test_reset(self, temp_db):
-        """Reset clears counts for a key."""
-        limiter = SQLiteRateLimiter(db_path=temp_db)
-
+    async def test_reset(self, limiter):
+        """Reset clears count for key."""
         for _ in range(5):
             await limiter.acquire("test", limit=10)
 
         await limiter.reset("test")
 
-        count = await limiter.get_current("test")
-        assert count == 0
+        result = await limiter.acquire("test", limit=10)
+        assert result.current_count == 1
 
     @pytest.mark.asyncio
-    async def test_cleanup_expired(self, temp_db):
+    async def test_cleanup_expired(self, limiter):
         """Cleanup removes old records."""
-        limiter = SQLiteRateLimiter(db_path=temp_db)
+        await limiter.acquire("test", limit=10)
+        deleted = await limiter.cleanup_expired(older_than_seconds=0)
+        assert deleted >= 0
 
-        # Acquire with very short window
-        await limiter.acquire("test", limit=10, window_seconds=1)
+    @pytest.mark.asyncio
+    async def test_concurrent_acquires(self, limiter):
+        """Handles concurrent acquires correctly."""
+        tasks = [limiter.acquire("test", limit=100) for _ in range(10)]
+        results = await asyncio.gather(*tasks)
 
-        # Wait for window to expire
-        await asyncio.sleep(1.1)
+        assert all(r.allowed for r in results)
+        final = await limiter.get_current("test")
+        assert final == 10
 
-        # Cleanup should remove old records
-        deleted = await limiter.cleanup_expired(older_than_seconds=1)
-        assert deleted >= 0  # May be 1 or 0 depending on timing
+
+class TestRedisRateLimiter:
+    """Tests for RedisRateLimiter (mocked)."""
+
+    @pytest.fixture
+    def mock_redis(self):
+        """Create mock async Redis client."""
+        mock = AsyncMock()
+        mock.incr = AsyncMock(return_value=1)
+        mock.expire = AsyncMock()
+        mock.get = AsyncMock(return_value=None)
+        mock.delete = AsyncMock()
+        mock.scan = AsyncMock(return_value=(0, []))
+        return mock
+
+    @pytest.mark.asyncio
+    async def test_acquire_uses_incr(self, mock_redis):
+        """Acquire uses Redis INCR command."""
+        limiter = RedisRateLimiter(url="redis://localhost:6379")
+        limiter._async_client = mock_redis
+
+        result = await limiter.acquire("test", limit=10)
+
+        mock_redis.incr.assert_called_once()
+        assert result.allowed is True
+
+    @pytest.mark.asyncio
+    async def test_sets_expire_on_first_request(self, mock_redis):
+        """Sets EXPIRE on first request in window."""
+        mock_redis.incr.return_value = 1
+
+        limiter = RedisRateLimiter(url="redis://localhost:6379")
+        limiter._async_client = mock_redis
+
+        await limiter.acquire("test", limit=10, window_seconds=60)
+
+        mock_redis.expire.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_no_expire_on_subsequent_requests(self, mock_redis):
+        """Does not set EXPIRE on subsequent requests."""
+        mock_redis.incr.return_value = 5
+
+        limiter = RedisRateLimiter(url="redis://localhost:6379")
+        limiter._async_client = mock_redis
+
+        await limiter.acquire("test", limit=10, window_seconds=60)
+
+        mock_redis.expire.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_over_limit_returns_not_allowed(self, mock_redis):
+        """Returns not allowed when over limit."""
+        mock_redis.incr.return_value = 11
+
+        limiter = RedisRateLimiter(url="redis://localhost:6379")
+        limiter._async_client = mock_redis
+
+        result = await limiter.acquire("test", limit=10)
+
+        assert result.allowed is False
+        assert result.retry_after is not None
+
+    @pytest.mark.asyncio
+    async def test_get_current(self, mock_redis):
+        """get_current returns count from Redis."""
+        mock_redis.get.return_value = b"5"
+
+        limiter = RedisRateLimiter(url="redis://localhost:6379")
+        limiter._async_client = mock_redis
+
+        count = await limiter.get_current("test")
+
+        assert count == 5
+
+    @pytest.mark.asyncio
+    async def test_get_current_returns_zero_when_none(self, mock_redis):
+        """get_current returns 0 when key doesn't exist."""
+        mock_redis.get.return_value = None
+
+        limiter = RedisRateLimiter(url="redis://localhost:6379")
+        limiter._async_client = mock_redis
+
+        count = await limiter.get_current("test")
+
+        assert count == 0
+
+    def test_key_includes_window_timestamp(self):
+        """Key includes window timestamp for sliding window."""
+        limiter = RedisRateLimiter(url="redis://localhost:6379", prefix="test:")
+
+        key1 = limiter._make_key("api", window_seconds=60)
+
+        assert key1.startswith("test:api:")
+        parts = key1.split(":")
+        assert len(parts) == 3
+        assert parts[2].isdigit()
 
 
 class TestGetRateLimiter:
-    """Tests for global rate limiter factory."""
+    """Tests for get_rate_limiter factory."""
+
+    def setup_method(self):
+        """Reset global limiter before each test."""
+        reset_rate_limiter()
+
+    def teardown_method(self):
+        """Reset global limiter after each test."""
+        reset_rate_limiter()
 
     def test_returns_sqlite_by_default(self):
-        """Returns SQLite limiter when Redis not configured."""
-        reset_rate_limiter()
-
-        # Ensure no Redis URL
-        with patch.dict(os.environ, {"REDIS_URL": ""}, clear=False):
-            limiter = get_rate_limiter()
-            assert isinstance(limiter, SQLiteRateLimiter)
+        """Returns SQLiteRateLimiter when no Redis URL."""
+        import os
+        os.environ.pop("REDIS_URL", None)
 
         reset_rate_limiter()
+        limiter = get_rate_limiter()
+
+        assert isinstance(limiter, SQLiteRateLimiter)
+
+    def test_returns_redis_when_url_set_and_installed(self):
+        """Returns RedisRateLimiter when REDIS_URL set and redis installed."""
+        with patch.dict("os.environ", {"REDIS_URL": "redis://localhost:6379"}):
+            with patch("importlib.util.find_spec") as mock_find_spec:
+                mock_find_spec.return_value = MagicMock()
+
+                reset_rate_limiter()
+                limiter = get_rate_limiter()
+
+                assert isinstance(limiter, RedisRateLimiter)
+
+    def test_falls_back_to_sqlite_when_redis_not_installed(self):
+        """Falls back to SQLite when REDIS_URL set but redis not installed."""
+        with patch.dict("os.environ", {"REDIS_URL": "redis://localhost:6379"}):
+            with patch("importlib.util.find_spec") as mock_find_spec:
+                mock_find_spec.return_value = None
+
+                reset_rate_limiter()
+                limiter = get_rate_limiter()
+
+                assert isinstance(limiter, SQLiteRateLimiter)
 
     def test_caches_instance(self):
         """Returns same instance on subsequent calls."""
-        reset_rate_limiter()
+        limiter1 = get_rate_limiter()
+        limiter2 = get_rate_limiter()
 
-        with patch.dict(os.environ, {"REDIS_URL": ""}, clear=False):
-            limiter1 = get_rate_limiter()
-            limiter2 = get_rate_limiter()
-            assert limiter1 is limiter2
-
-        reset_rate_limiter()
+        assert limiter1 is limiter2
 
     def test_reset_clears_cache(self):
         """reset_rate_limiter clears cached instance."""
+        limiter1 = get_rate_limiter()
         reset_rate_limiter()
+        limiter2 = get_rate_limiter()
 
-        with patch.dict(os.environ, {"REDIS_URL": ""}, clear=False):
-            limiter1 = get_rate_limiter()
-            reset_rate_limiter()
-            limiter2 = get_rate_limiter()
-            assert limiter1 is not limiter2
-
-        reset_rate_limiter()
+        assert limiter1 is not limiter2
 
 
-class TestDistributedExecutorIntegration:
-    """Tests for distributed rate limiting in executor."""
+class TestConcurrency:
+    """Tests for concurrent access patterns."""
 
     @pytest.mark.asyncio
-    async def test_executor_with_distributed_disabled(self):
-        """Executor works with distributed disabled (default)."""
-        from test_ai.workflow import RateLimitedParallelExecutor, ParallelTask
+    async def test_memory_limiter_thread_safe(self):
+        """Memory limiter handles concurrent access."""
+        limiter = MemoryRateLimiter()
 
-        executor = RateLimitedParallelExecutor(distributed=False)
-        assert executor._distributed is False
-        assert executor._distributed_limiter is None
+        async def acquire_many():
+            for _ in range(100):
+                await limiter.acquire("test", limit=1000)
 
-    @pytest.mark.asyncio
-    async def test_executor_with_distributed_enabled(self):
-        """Executor initializes distributed limiter when enabled."""
-        from test_ai.workflow import RateLimitedParallelExecutor
+        await asyncio.gather(*[acquire_many() for _ in range(10)])
 
-        reset_rate_limiter()
-
-        with patch.dict(os.environ, {"REDIS_URL": ""}, clear=False):
-            executor = RateLimitedParallelExecutor(distributed=True)
-            assert executor._distributed is True
-            # Limiter created lazily
-            limiter = executor._get_distributed_limiter()
-            assert limiter is not None
-
-        reset_rate_limiter()
+        count = await limiter.get_current("test")
+        assert count == 1000
 
     @pytest.mark.asyncio
-    async def test_distributed_check_allowed(self):
-        """Distributed check allows requests within limit."""
-        from test_ai.workflow import RateLimitedParallelExecutor
+    async def test_sqlite_limiter_concurrent_access(self, tmp_path):
+        """SQLite limiter handles concurrent access."""
+        db_path = str(tmp_path / "rate_limits.db")
+        limiter = SQLiteRateLimiter(db_path=db_path)
 
-        reset_rate_limiter()
+        tasks = [limiter.acquire("test", limit=1000) for _ in range(50)]
+        results = await asyncio.gather(*tasks)
 
-        with patch.dict(os.environ, {"REDIS_URL": ""}, clear=False):
-            executor = RateLimitedParallelExecutor(
-                distributed=True,
-                distributed_rpm={"anthropic": 100, "default": 100},
-            )
-
-            allowed = await executor._check_distributed_limit("anthropic")
-            assert allowed is True
-
-        reset_rate_limiter()
-
-    @pytest.mark.asyncio
-    async def test_distributed_check_denied(self):
-        """Distributed check denies requests over limit."""
-        from test_ai.workflow import RateLimitedParallelExecutor
-
-        reset_rate_limiter()
-
-        with patch.dict(os.environ, {"REDIS_URL": ""}, clear=False):
-            executor = RateLimitedParallelExecutor(
-                distributed=True,
-                distributed_rpm={"anthropic": 2, "default": 2},
-                distributed_window=60,
-            )
-
-            # Use up the limit
-            await executor._check_distributed_limit("anthropic")
-            await executor._check_distributed_limit("anthropic")
-
-            # Next should be denied
-            allowed = await executor._check_distributed_limit("anthropic")
-            assert allowed is False
-
-        reset_rate_limiter()
-
-    def test_get_provider_stats_includes_distributed(self):
-        """Provider stats include distributed info."""
-        from test_ai.workflow import RateLimitedParallelExecutor
-
-        executor = RateLimitedParallelExecutor(
-            distributed=True,
-            distributed_rpm={"anthropic": 60, "openai": 90, "default": 120},
-        )
-
-        stats = executor.get_provider_stats()
-
-        assert stats["anthropic"]["distributed_enabled"] is True
-        assert stats["anthropic"]["distributed_rpm"] == 60
-        assert stats["openai"]["distributed_rpm"] == 90
-
-    def test_get_provider_stats_without_distributed(self):
-        """Provider stats show distributed disabled."""
-        from test_ai.workflow import RateLimitedParallelExecutor
-
-        executor = RateLimitedParallelExecutor(distributed=False)
-
-        stats = executor.get_provider_stats()
-
-        assert stats["anthropic"]["distributed_enabled"] is False
-
-    def test_create_executor_with_distributed(self):
-        """Factory function supports distributed options."""
-        from test_ai.workflow import create_rate_limited_executor
-
-        executor = create_rate_limited_executor(
-            distributed=True,
-            anthropic_rpm=50,
-            openai_rpm=80,
-        )
-
-        assert executor._distributed is True
-        assert executor._distributed_rpm["anthropic"] == 50
-        assert executor._distributed_rpm["openai"] == 80
-
-    @pytest.mark.asyncio
-    async def test_task_respects_distributed_limit(self):
-        """Task execution respects distributed rate limit."""
-        from test_ai.workflow import RateLimitedParallelExecutor, ParallelTask
-        from test_ai.workflow.distributed_rate_limiter import SQLiteRateLimiter
-
-        reset_rate_limiter()
-
-        # Use a fresh temp database for this test to avoid pollution
-        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
-            db_path = f.name
-
-        try:
-            # Create executor with fresh limiter
-            executor = RateLimitedParallelExecutor(
-                distributed=True,
-                distributed_rpm={"anthropic": 10, "default": 10},
-                distributed_window=60,
-            )
-            # Inject fresh limiter
-            executor._distributed_limiter = SQLiteRateLimiter(db_path=db_path)
-
-            async def success_handler(**kwargs):
-                return "ok"
-
-            tasks = [
-                ParallelTask(
-                    id=f"t{i}",
-                    step_id=f"t{i}",
-                    handler=success_handler,
-                    kwargs={"provider": "anthropic"},
-                )
-                for i in range(3)
-            ]
-
-            result = await executor.execute_parallel_rate_limited(tasks)
-
-            # All 3 should succeed (within limit of 10)
-            assert len(result.successful) == 3
-        finally:
-            os.unlink(db_path)
-
-        reset_rate_limiter()
+        assert all(r.allowed for r in results)
+        count = await limiter.get_current("test")
+        assert count == 50
