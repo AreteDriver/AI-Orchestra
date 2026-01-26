@@ -316,6 +316,320 @@ class WebhookChannel(NotificationChannel):
             return False
 
 
+class EmailChannel(NotificationChannel):
+    """Send notifications via SMTP email."""
+
+    def __init__(
+        self,
+        smtp_host: str,
+        smtp_port: int = 587,
+        username: str | None = None,
+        password: str | None = None,
+        from_addr: str = "gorgon@localhost",
+        to_addrs: list[str] | None = None,
+        use_tls: bool = True,
+    ):
+        """Initialize email channel.
+
+        Args:
+            smtp_host: SMTP server hostname
+            smtp_port: SMTP server port (default 587 for TLS)
+            username: SMTP username (optional)
+            password: SMTP password (optional)
+            from_addr: From email address
+            to_addrs: List of recipient email addresses
+            use_tls: Whether to use TLS (default True)
+        """
+        self.smtp_host = smtp_host
+        self.smtp_port = smtp_port
+        self.username = username
+        self.password = password
+        self.from_addr = from_addr
+        self.to_addrs = to_addrs or []
+        self.use_tls = use_tls
+
+    def name(self) -> str:
+        return "email"
+
+    def send(self, event: NotificationEvent) -> bool:
+        """Send notification via email."""
+        import smtplib
+        from email.mime.text import MIMEText
+        from email.mime.multipart import MIMEMultipart
+
+        if not self.to_addrs:
+            logger.warning("Email channel has no recipients configured")
+            return False
+
+        try:
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = f"[Gorgon] {self._event_emoji(event.event_type)} {event.workflow_name}"
+            msg["From"] = self.from_addr
+            msg["To"] = ", ".join(self.to_addrs)
+
+            # Plain text version
+            text_body = self._format_text(event)
+            msg.attach(MIMEText(text_body, "plain"))
+
+            # HTML version
+            html_body = self._format_html(event)
+            msg.attach(MIMEText(html_body, "html"))
+
+            # Send email
+            with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
+                if self.use_tls:
+                    server.starttls()
+                if self.username and self.password:
+                    server.login(self.username, self.password)
+                server.sendmail(self.from_addr, self.to_addrs, msg.as_string())
+
+            return True
+        except Exception as e:
+            logger.error(f"Email notification failed: {e}")
+            return False
+
+    def _event_emoji(self, event_type: EventType) -> str:
+        emojis = {
+            EventType.WORKFLOW_STARTED: "▶️",
+            EventType.WORKFLOW_COMPLETED: "✅",
+            EventType.WORKFLOW_FAILED: "❌",
+            EventType.STEP_COMPLETED: "☑️",
+            EventType.STEP_FAILED: "⚠️",
+            EventType.BUDGET_WARNING: "💰",
+            EventType.BUDGET_EXCEEDED: "🚫",
+            EventType.SCHEDULE_TRIGGERED: "⏰",
+        }
+        return emojis.get(event_type, "🔔")
+
+    def _format_text(self, event: NotificationEvent) -> str:
+        lines = [
+            f"Workflow: {event.workflow_name}",
+            f"Event: {event.event_type.value}",
+            f"Message: {event.message}",
+            f"Severity: {event.severity}",
+            f"Time: {event.timestamp.isoformat()}",
+            "",
+            "Details:",
+        ]
+        for key, value in event.details.items():
+            lines.append(f"  {key}: {value}")
+        return "\n".join(lines)
+
+    def _format_html(self, event: NotificationEvent) -> str:
+        severity_colors = {
+            "info": "#3498db",
+            "success": "#2ecc71",
+            "warning": "#f39c12",
+            "error": "#e74c3c",
+        }
+        color = severity_colors.get(event.severity, "#95a5a6")
+
+        details_html = "".join(
+            f"<tr><td><strong>{k}</strong></td><td>{v}</td></tr>"
+            for k, v in event.details.items()
+        )
+
+        return f"""
+        <html>
+        <body style="font-family: Arial, sans-serif;">
+            <div style="border-left: 4px solid {color}; padding-left: 16px; margin: 16px 0;">
+                <h2 style="margin: 0;">{event.workflow_name}</h2>
+                <p style="color: #666; margin: 8px 0;">{event.message}</p>
+                <table style="border-collapse: collapse; margin-top: 16px;">
+                    <tr><td><strong>Event</strong></td><td>{event.event_type.value}</td></tr>
+                    <tr><td><strong>Severity</strong></td><td style="color: {color};">{event.severity.upper()}</td></tr>
+                    <tr><td><strong>Time</strong></td><td>{event.timestamp.isoformat()}</td></tr>
+                    {details_html}
+                </table>
+            </div>
+            <p style="color: #999; font-size: 12px;">Sent by Gorgon Workflow Engine</p>
+        </body>
+        </html>
+        """
+
+
+class TeamsChannel(NotificationChannel):
+    """Send notifications to Microsoft Teams via webhook."""
+
+    def __init__(self, webhook_url: str):
+        """Initialize Teams channel.
+
+        Args:
+            webhook_url: Microsoft Teams incoming webhook URL
+        """
+        self.webhook_url = webhook_url
+
+    def name(self) -> str:
+        return "teams"
+
+    def send(self, event: NotificationEvent) -> bool:
+        """Send notification to Teams."""
+        color = self._severity_to_color(event.severity)
+
+        # Build Teams Adaptive Card
+        payload = {
+            "@type": "MessageCard",
+            "@context": "http://schema.org/extensions",
+            "themeColor": color,
+            "summary": f"{event.workflow_name}: {event.message}",
+            "sections": [
+                {
+                    "activityTitle": f"{self._event_emoji(event.event_type)} {event.workflow_name}",
+                    "activitySubtitle": event.timestamp.strftime("%Y-%m-%d %H:%M:%S UTC"),
+                    "text": event.message,
+                    "facts": self._build_facts(event),
+                }
+            ],
+        }
+
+        return self._post(payload)
+
+    def _severity_to_color(self, severity: str) -> str:
+        colors = {
+            "info": "0078D7",
+            "success": "2DC72D",
+            "warning": "FFA500",
+            "error": "FF0000",
+        }
+        return colors.get(severity, "808080")
+
+    def _event_emoji(self, event_type: EventType) -> str:
+        emojis = {
+            EventType.WORKFLOW_STARTED: "▶️",
+            EventType.WORKFLOW_COMPLETED: "✅",
+            EventType.WORKFLOW_FAILED: "❌",
+            EventType.STEP_COMPLETED: "☑️",
+            EventType.STEP_FAILED: "⚠️",
+            EventType.BUDGET_WARNING: "💰",
+            EventType.BUDGET_EXCEEDED: "🚫",
+            EventType.SCHEDULE_TRIGGERED: "⏰",
+        }
+        return emojis.get(event_type, "🔔")
+
+    def _build_facts(self, event: NotificationEvent) -> list:
+        facts = [
+            {"name": "Event", "value": event.event_type.value},
+            {"name": "Severity", "value": event.severity.upper()},
+        ]
+        for key, value in event.details.items():
+            if isinstance(value, (str, int, float, bool)):
+                facts.append({"name": key.replace("_", " ").title(), "value": str(value)})
+        return facts
+
+    def _post(self, payload: dict) -> bool:
+        try:
+            data = json.dumps(payload).encode("utf-8")
+            req = Request(
+                self.webhook_url,
+                data=data,
+                headers={"Content-Type": "application/json"},
+            )
+            with urlopen(req, timeout=10) as response:
+                return response.status == 200
+        except URLError as e:
+            logger.error(f"Teams notification failed: {e}")
+            return False
+
+
+class PagerDutyChannel(NotificationChannel):
+    """Send notifications to PagerDuty via Events API v2."""
+
+    def __init__(
+        self,
+        routing_key: str,
+        source: str = "gorgon",
+        component: str = "workflow-engine",
+    ):
+        """Initialize PagerDuty channel.
+
+        Args:
+            routing_key: PagerDuty Events API v2 integration key
+            source: Source identifier for events
+            component: Component name
+        """
+        self.routing_key = routing_key
+        self.source = source
+        self.component = component
+        self.api_url = "https://events.pagerduty.com/v2/enqueue"
+
+    def name(self) -> str:
+        return "pagerduty"
+
+    def send(self, event: NotificationEvent) -> bool:
+        """Send notification to PagerDuty."""
+        # Only send critical events to PagerDuty
+        if event.severity not in ("error", "warning") and event.event_type not in (
+            EventType.WORKFLOW_FAILED,
+            EventType.BUDGET_EXCEEDED,
+        ):
+            logger.debug(f"Skipping PagerDuty for non-critical event: {event.event_type}")
+            return True
+
+        severity = self._map_severity(event.severity)
+        action = "trigger" if event.severity == "error" else "trigger"
+
+        payload = {
+            "routing_key": self.routing_key,
+            "event_action": action,
+            "dedup_key": f"{event.workflow_name}-{event.event_type.value}",
+            "payload": {
+                "summary": f"{event.workflow_name}: {event.message}",
+                "source": self.source,
+                "severity": severity,
+                "timestamp": event.timestamp.isoformat(),
+                "component": self.component,
+                "custom_details": {
+                    "workflow_name": event.workflow_name,
+                    "event_type": event.event_type.value,
+                    **event.details,
+                },
+            },
+        }
+
+        return self._post(payload)
+
+    def _map_severity(self, severity: str) -> str:
+        """Map internal severity to PagerDuty severity."""
+        mapping = {
+            "error": "critical",
+            "warning": "warning",
+            "info": "info",
+            "success": "info",
+        }
+        return mapping.get(severity, "info")
+
+    def _post(self, payload: dict) -> bool:
+        try:
+            data = json.dumps(payload).encode("utf-8")
+            req = Request(
+                self.api_url,
+                data=data,
+                headers={"Content-Type": "application/json"},
+            )
+            with urlopen(req, timeout=10) as response:
+                return response.status in (200, 202)
+        except URLError as e:
+            logger.error(f"PagerDuty notification failed: {e}")
+            return False
+
+    def resolve(self, workflow_name: str, event_type: EventType) -> bool:
+        """Resolve a PagerDuty incident.
+
+        Args:
+            workflow_name: Name of the workflow
+            event_type: Original event type that triggered the incident
+
+        Returns:
+            True if resolved successfully
+        """
+        payload = {
+            "routing_key": self.routing_key,
+            "event_action": "resolve",
+            "dedup_key": f"{workflow_name}-{event_type.value}",
+        }
+        return self._post(payload)
+
+
 class Notifier:
     """Central notification manager.
 

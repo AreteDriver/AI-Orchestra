@@ -1,6 +1,7 @@
 """Outbound Notifications for Workflow Events.
 
-Send notifications to Slack, Discord, and other services when workflow events occur.
+Send notifications to Slack, Discord, Teams, Email, PagerDuty, and other services
+when workflow events occur.
 """
 
 from .notifier import (
@@ -11,6 +12,9 @@ from .notifier import (
     SlackChannel,
     DiscordChannel,
     WebhookChannel,
+    EmailChannel,
+    TeamsChannel,
+    PagerDutyChannel,
 )
 
 __all__ = [
@@ -21,4 +25,7 @@ __all__ = [
     "SlackChannel",
     "DiscordChannel",
     "WebhookChannel",
+    "EmailChannel",
+    "TeamsChannel",
+    "PagerDutyChannel",
 ]

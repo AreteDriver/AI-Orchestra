@@ -12,6 +12,9 @@ from test_ai.notifications import (
     SlackChannel,
     DiscordChannel,
     WebhookChannel,
+    EmailChannel,
+    TeamsChannel,
+    PagerDutyChannel,
 )
 
 
@@ -299,3 +302,170 @@ class TestWebhookChannel:
             headers={"Authorization": "Bearer token"},
         )
         assert channel.headers["Authorization"] == "Bearer token"
+
+
+class TestEmailChannel:
+    """Tests for EmailChannel class."""
+
+    def test_channel_name(self):
+        """Channel name is 'email'."""
+        channel = EmailChannel(smtp_host="smtp.example.com")
+        assert channel.name() == "email"
+
+    def test_default_port(self):
+        """Default SMTP port is 587."""
+        channel = EmailChannel(smtp_host="smtp.example.com")
+        assert channel.smtp_port == 587
+
+    def test_custom_configuration(self):
+        """Can configure email settings."""
+        channel = EmailChannel(
+            smtp_host="smtp.example.com",
+            smtp_port=465,
+            username="user",
+            password="pass",
+            from_addr="bot@example.com",
+            to_addrs=["admin@example.com", "ops@example.com"],
+            use_tls=True,
+        )
+        assert channel.smtp_host == "smtp.example.com"
+        assert channel.smtp_port == 465
+        assert channel.username == "user"
+        assert channel.from_addr == "bot@example.com"
+        assert len(channel.to_addrs) == 2
+
+    def test_format_text(self):
+        """Text formatting works."""
+        channel = EmailChannel(smtp_host="smtp.example.com")
+        event = NotificationEvent(
+            event_type=EventType.WORKFLOW_COMPLETED,
+            workflow_name="test",
+            message="Done",
+            details={"tokens": 100},
+        )
+        text = channel._format_text(event)
+        assert "test" in text
+        assert "Done" in text
+        assert "tokens" in text
+
+    def test_format_html(self):
+        """HTML formatting works."""
+        channel = EmailChannel(smtp_host="smtp.example.com")
+        event = NotificationEvent(
+            event_type=EventType.WORKFLOW_COMPLETED,
+            workflow_name="test",
+            message="Done",
+            severity="success",
+        )
+        html = channel._format_html(event)
+        assert "<html>" in html
+        assert "test" in html
+        assert "#2ecc71" in html  # Success color
+
+    def test_send_no_recipients(self):
+        """Send returns False with no recipients."""
+        channel = EmailChannel(smtp_host="smtp.example.com")
+        event = NotificationEvent(
+            event_type=EventType.WORKFLOW_COMPLETED,
+            workflow_name="test",
+            message="Done",
+        )
+        result = channel.send(event)
+        assert result is False
+
+
+class TestTeamsChannel:
+    """Tests for TeamsChannel class."""
+
+    def test_channel_name(self):
+        """Channel name is 'teams'."""
+        channel = TeamsChannel(webhook_url="https://outlook.office.com/webhook/xxx")
+        assert channel.name() == "teams"
+
+    def test_severity_colors(self):
+        """Severity maps to hex colors (no #)."""
+        channel = TeamsChannel(webhook_url="https://example.com")
+        assert channel._severity_to_color("success") == "2DC72D"
+        assert channel._severity_to_color("error") == "FF0000"
+        assert channel._severity_to_color("warning") == "FFA500"
+        assert channel._severity_to_color("info") == "0078D7"
+
+    def test_event_emojis(self):
+        """Events map to emojis."""
+        channel = TeamsChannel(webhook_url="https://example.com")
+        assert "✅" in channel._event_emoji(EventType.WORKFLOW_COMPLETED)
+        assert "❌" in channel._event_emoji(EventType.WORKFLOW_FAILED)
+
+    def test_build_facts(self):
+        """Facts are built correctly."""
+        channel = TeamsChannel(webhook_url="https://example.com")
+        event = NotificationEvent(
+            event_type=EventType.WORKFLOW_COMPLETED,
+            workflow_name="test",
+            message="Done",
+            details={"tokens": 100, "duration_ms": 5000},
+        )
+        facts = channel._build_facts(event)
+        assert len(facts) >= 2  # At least event and severity
+        fact_names = [f["name"] for f in facts]
+        assert "Event" in fact_names
+        assert "Severity" in fact_names
+
+
+class TestPagerDutyChannel:
+    """Tests for PagerDutyChannel class."""
+
+    def test_channel_name(self):
+        """Channel name is 'pagerduty'."""
+        channel = PagerDutyChannel(routing_key="xxx")
+        assert channel.name() == "pagerduty"
+
+    def test_api_url(self):
+        """Uses PagerDuty Events API v2."""
+        channel = PagerDutyChannel(routing_key="xxx")
+        assert "events.pagerduty.com/v2/enqueue" in channel.api_url
+
+    def test_custom_source_component(self):
+        """Can configure source and component."""
+        channel = PagerDutyChannel(
+            routing_key="xxx",
+            source="my-app",
+            component="api-server",
+        )
+        assert channel.source == "my-app"
+        assert channel.component == "api-server"
+
+    def test_map_severity(self):
+        """Severity is mapped to PagerDuty severity."""
+        channel = PagerDutyChannel(routing_key="xxx")
+        assert channel._map_severity("error") == "critical"
+        assert channel._map_severity("warning") == "warning"
+        assert channel._map_severity("info") == "info"
+        assert channel._map_severity("success") == "info"
+
+    def test_skips_non_critical_events(self):
+        """Non-critical events are skipped."""
+        channel = PagerDutyChannel(routing_key="xxx")
+        event = NotificationEvent(
+            event_type=EventType.WORKFLOW_COMPLETED,
+            workflow_name="test",
+            message="Done",
+            severity="success",
+        )
+        # Should return True (skipped, not failed)
+        result = channel.send(event)
+        assert result is True
+
+    def test_sends_error_events(self):
+        """Error events are sent (would fail without network)."""
+        channel = PagerDutyChannel(routing_key="xxx")
+        event = NotificationEvent(
+            event_type=EventType.WORKFLOW_FAILED,
+            workflow_name="test",
+            message="Failed",
+            severity="error",
+        )
+        # Will fail due to no network, but tests the path
+        result = channel.send(event)
+        # False because no real PagerDuty connection
+        assert result is False
