@@ -193,7 +193,7 @@ class TestJSONFormatter:
         result = formatter.format(record)
         parsed = json.loads(result)
 
-        assert parsed["timestamp"].endswith("Z")
+        assert parsed["timestamp"].endswith("+00:00")
         assert "T" in parsed["timestamp"]
 
     def test_includes_optional_fields_when_present(self, formatter):
