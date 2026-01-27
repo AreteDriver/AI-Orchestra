@@ -23,6 +23,7 @@ class AgentRole(Enum):
     DEVOPS = "devops"
     SECURITY_AUDITOR = "security_auditor"
     MIGRATOR = "migrator"
+    MODEL_BUILDER = "model_builder"
 
 
 class ContractViolation(Exception):

@@ -222,6 +222,7 @@ class BaseAPIClient:
 | `devops` | Infrastructure - Docker, Kubernetes, CI/CD, Terraform, cloud configurations |
 | `security_auditor` | Security - vulnerability scanning, OWASP compliance, dependency audits |
 | `migrator` | Migrations - framework upgrades, language migrations, API updates, refactoring |
+| `model_builder` | 3D asset creation - scripts, shaders, materials for Unity/Blender/Unreal/Godot/Three.js |
 
 **Configuration:**
 - Agent prompts configurable via `config/agent_prompts.json`
@@ -581,6 +582,54 @@ tracker.track(
 summary = tracker.get_summary(days=30)
 print(f"Monthly cost: ${summary['total_cost_usd']:.2f}")
 ```
+
+### Example: 3D Asset Generation Workflow
+
+The `model_builder` agent enables creation of 3D assets, scripts, shaders, and configurations for game engines and 3D tools.
+
+```
+1. Claude Code Client (planner role)
+   ↓ plan asset structure and technical approach
+   plan_output
+
+2. Claude Code Client (model_builder role)
+   ↓ generate scripts, shaders, and configurations
+   assets_output
+
+3. Claude Code Client (reviewer role)
+   ↓ review for performance and platform conventions
+   review_output
+
+4. Return Results (plan, assets, instructions, review)
+```
+
+**Supported Platforms:**
+- **Unity** - C# scripts, ShaderLab/HLSL shaders, Animator controllers
+- **Blender** - Python addons, geometry nodes configs, material setups
+- **Unreal** - C++, Blueprints, Niagara VFX, Material functions
+- **Godot** - GDScript, Godot shaders, scene configurations
+- **Three.js** - JavaScript/TypeScript, GLSL shaders, scene setup
+
+**Available 3D Workflows:**
+
+| Workflow | Purpose |
+|----------|---------|
+| `3d-asset-build` | General 3D asset creation |
+| `blender-addon` | Blender Python addon generation |
+| `unity-shader-pipeline` | Unity shader with material setup |
+| `game-character-setup` | Complete character controller pipeline |
+| `vfx-particle-system` | Particle effects and VFX |
+| `threejs-scene` | Interactive Three.js web scenes |
+
+**Prompt Templates for 3D:**
+
+| Template | Purpose |
+|----------|---------|
+| `procedural_terrain` | Terrain generation with noise algorithms |
+| `shader_creation` | Custom shader development |
+| `animation_controller` | State machines and blend trees |
+
+See `examples/3d-assets/` for usage examples.
 
 ## Design Patterns
 
