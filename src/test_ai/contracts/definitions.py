@@ -293,7 +293,15 @@ MODEL_BUILDER_CONTRACT = AgentContract(
             },
             "asset_type": {
                 "type": "string",
-                "enum": ["model", "scene", "material", "shader", "animation", "prefab", "script"],
+                "enum": [
+                    "model",
+                    "scene",
+                    "material",
+                    "shader",
+                    "animation",
+                    "prefab",
+                    "script",
+                ],
                 "description": "Type of 3D asset to work with",
             },
             "existing_assets": {
