@@ -329,6 +329,9 @@ class WorkflowExecutor:
             elif i == 0 and "response" in step_result.output:
                 # Map 'response' to the first custom output name for AI steps
                 self._context[output_key] = step_result.output["response"]
+            elif i == 0 and "stdout" in step_result.output:
+                # Map 'stdout' to the first custom output name for shell steps
+                self._context[output_key] = step_result.output["stdout"]
 
     def _handle_step_failure(
         self,

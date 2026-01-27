@@ -20,8 +20,8 @@ class ConditionConfig:
     """Condition for step execution."""
 
     field: str
-    operator: Literal["equals", "not_equals", "contains", "greater_than", "less_than"]
-    value: Any
+    operator: Literal["equals", "not_equals", "contains", "greater_than", "less_than", "in", "not_empty"]
+    value: Any = None
 
     def evaluate(self, context: dict) -> bool:
         """Evaluate condition against context."""
@@ -39,6 +39,10 @@ class ConditionConfig:
             return actual > self.value if isinstance(actual, (int, float)) else False
         elif self.operator == "less_than":
             return actual < self.value if isinstance(actual, (int, float)) else False
+        elif self.operator == "in":
+            return actual in self.value if isinstance(self.value, (list, str)) else False
+        elif self.operator == "not_empty":
+            return bool(actual)
         return False
 
 
@@ -113,7 +117,7 @@ class StepConfig:
             condition = ConditionConfig(
                 field=cond_data["field"],
                 operator=cond_data["operator"],
-                value=cond_data["value"],
+                value=cond_data.get("value"),
             )
 
         # Parse depends_on - supports string or list
@@ -234,7 +238,7 @@ WORKFLOW_SCHEMA = {
                     "params": {"type": "object"},
                     "condition": {
                         "type": "object",
-                        "required": ["field", "operator", "value"],
+                        "required": ["field", "operator"],
                         "properties": {
                             "field": {"type": "string"},
                             "operator": {
@@ -245,6 +249,8 @@ WORKFLOW_SCHEMA = {
                                     "contains",
                                     "greater_than",
                                     "less_than",
+                                    "in",
+                                    "not_empty",
                                 ],
                             },
                             "value": {},
@@ -423,7 +429,7 @@ VALID_STEP_TYPES = frozenset(
     }
 )
 VALID_OPERATORS = frozenset(
-    {"equals", "not_equals", "contains", "greater_than", "less_than"}
+    {"equals", "not_equals", "contains", "greater_than", "less_than", "in", "not_empty"}
 )
 VALID_ON_FAILURE = frozenset({"abort", "skip", "retry"})
 
@@ -438,9 +444,13 @@ def _validate_step_condition(step: dict, prefix: str) -> list[str]:
     if not isinstance(cond, dict):
         return [f"{prefix}: condition must be an object"]
 
-    for req in ("field", "operator", "value"):
+    for req in ("field", "operator"):
         if req not in cond:
             errors.append(f"{prefix}: condition missing '{req}'")
+
+    # 'value' is required for all operators except 'not_empty'
+    if cond.get("operator") != "not_empty" and "value" not in cond:
+        errors.append(f"{prefix}: condition missing 'value'")
 
     if "operator" in cond and cond["operator"] not in VALID_OPERATORS:
         errors.append(f"{prefix}: invalid condition operator '{cond['operator']}'")
