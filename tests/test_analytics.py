@@ -692,7 +692,10 @@ class TestAnalyticsPipeline:
     def test_add_agent_stage(self, mock_client_class):
         """Test adding an agent-powered stage."""
         mock_client = MagicMock()
-        mock_client.execute_agent.return_value = {"output": "AI generated analysis"}
+        mock_client.execute_agent.return_value = {
+            "success": True,
+            "output": "AI generated analysis",
+        }
         mock_client_class.return_value = mock_client
 
         pipeline = AnalyticsPipeline("test", use_agents=True)

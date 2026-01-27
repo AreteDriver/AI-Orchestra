@@ -21,7 +21,9 @@ from test_ai.notifications.notifier import (
 )
 
 
-def _make_event(event_type=EventType.WORKFLOW_COMPLETED, severity="success", details=None):
+def _make_event(
+    event_type=EventType.WORKFLOW_COMPLETED, severity="success", details=None
+):
     return NotificationEvent(
         event_type=event_type,
         workflow_name="test-wf",
@@ -32,7 +34,6 @@ def _make_event(event_type=EventType.WORKFLOW_COMPLETED, severity="success", det
 
 
 class TestSlackChannelSend:
-
     @patch("test_ai.notifications.notifier.urlopen")
     def test_send_success(self, mock_urlopen):
         mock_response = MagicMock()
@@ -64,6 +65,7 @@ class TestSlackChannelSend:
     @patch("test_ai.notifications.notifier.urlopen")
     def test_send_failure(self, mock_urlopen):
         from urllib.error import URLError
+
         mock_urlopen.side_effect = URLError("Connection refused")
 
         channel = SlackChannel(webhook_url="https://hooks.slack.com/test")
@@ -72,7 +74,9 @@ class TestSlackChannelSend:
 
     def test_build_fields_with_details(self):
         channel = SlackChannel(webhook_url="https://example.com")
-        event = _make_event(details={"tokens_used": 100, "duration_ms": 5000, "nested": {"a": 1}})
+        event = _make_event(
+            details={"tokens_used": 100, "duration_ms": 5000, "nested": {"a": 1}}
+        )
         fields = channel._build_fields(event)
         field_titles = [f["title"] for f in fields]
         assert "Event" in field_titles
@@ -91,7 +95,6 @@ class TestSlackChannelSend:
 
 
 class TestDiscordChannelSend:
-
     @patch("test_ai.notifications.notifier.urlopen")
     def test_send_success(self, mock_urlopen):
         mock_response = MagicMock()
@@ -122,6 +125,7 @@ class TestDiscordChannelSend:
     @patch("test_ai.notifications.notifier.urlopen")
     def test_send_failure(self, mock_urlopen):
         from urllib.error import URLError
+
         mock_urlopen.side_effect = URLError("timeout")
 
         channel = DiscordChannel(webhook_url="https://discord.com/api/webhooks/test")
@@ -144,7 +148,6 @@ class TestDiscordChannelSend:
 
 
 class TestWebhookChannelSend:
-
     @patch("test_ai.notifications.notifier.urlopen")
     def test_send_success(self, mock_urlopen):
         mock_response = MagicMock()
@@ -175,6 +178,7 @@ class TestWebhookChannelSend:
     @patch("test_ai.notifications.notifier.urlopen")
     def test_send_failure(self, mock_urlopen):
         from urllib.error import URLError
+
         mock_urlopen.side_effect = URLError("refused")
 
         channel = WebhookChannel(url="https://example.com/hook")
@@ -195,7 +199,6 @@ class TestWebhookChannelSend:
 
 
 class TestEmailChannelSend:
-
     @patch("smtplib.SMTP")
     def test_send_success_with_tls_and_auth(self, mock_smtp_cls):
         mock_server = MagicMock()
@@ -260,11 +263,12 @@ class TestEmailChannelSend:
     def test_event_emojis(self):
         channel = EmailChannel(smtp_host="smtp.example.com")
         assert "✅" in channel._event_emoji(EventType.WORKFLOW_COMPLETED)
-        assert "🔔" in channel._event_emoji(EventType.SCHEDULE_TRIGGERED) or "⏰" in channel._event_emoji(EventType.SCHEDULE_TRIGGERED)
+        assert "🔔" in channel._event_emoji(
+            EventType.SCHEDULE_TRIGGERED
+        ) or "⏰" in channel._event_emoji(EventType.SCHEDULE_TRIGGERED)
 
 
 class TestTeamsChannelSend:
-
     @patch("test_ai.notifications.notifier.urlopen")
     def test_send_success(self, mock_urlopen):
         mock_response = MagicMock()
@@ -274,12 +278,15 @@ class TestTeamsChannelSend:
         mock_urlopen.return_value = mock_response
 
         channel = TeamsChannel(webhook_url="https://outlook.office.com/webhook/test")
-        result = channel.send(_make_event(event_type=EventType.WORKFLOW_FAILED, severity="error"))
+        result = channel.send(
+            _make_event(event_type=EventType.WORKFLOW_FAILED, severity="error")
+        )
         assert result is True
 
     @patch("test_ai.notifications.notifier.urlopen")
     def test_send_failure(self, mock_urlopen):
         from urllib.error import URLError
+
         mock_urlopen.side_effect = URLError("timeout")
 
         channel = TeamsChannel(webhook_url="https://outlook.office.com/webhook/test")
@@ -292,7 +299,6 @@ class TestTeamsChannelSend:
 
 
 class TestPagerDutyChannelSend:
-
     @patch("test_ai.notifications.notifier.urlopen")
     def test_send_error_event(self, mock_urlopen):
         mock_response = MagicMock()
@@ -322,6 +328,7 @@ class TestPagerDutyChannelSend:
     @patch("test_ai.notifications.notifier.urlopen")
     def test_send_failure(self, mock_urlopen):
         from urllib.error import URLError
+
         mock_urlopen.side_effect = URLError("timeout")
 
         channel = PagerDutyChannel(routing_key="test-key")
@@ -347,7 +354,6 @@ class TestPagerDutyChannelSend:
 
 
 class TestNotifierChannelException:
-
     def test_channel_exception_caught(self):
         """If a channel raises an exception (not just returns False), notify catches it."""
         notifier = Notifier()
