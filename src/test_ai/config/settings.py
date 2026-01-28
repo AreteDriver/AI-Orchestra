@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     )
 
     # API Keys
-    openai_api_key: str = Field(..., description="OpenAI API key")
+    openai_api_key: str = Field(default="", description="OpenAI API key")
     github_token: Optional[str] = Field(
         None, description="GitHub personal access token"
     )
