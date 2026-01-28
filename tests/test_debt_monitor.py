@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from src.test_ai.metrics.debt_monitor import (
+from test_ai.metrics.debt_monitor import (
     AuditCheck,
     AuditFrequency,
     AuditResult,
@@ -23,12 +23,12 @@ from src.test_ai.metrics.debt_monitor import (
     load_active_baseline,
     save_baseline,
 )
-from src.test_ai.metrics.audit_checks import (
+from test_ai.metrics.audit_checks import (
     _diff_configs,
     check_error_rate,
     check_skill_integrity,
 )
-from src.test_ai.state.backends import SQLiteBackend
+from test_ai.state.backends import SQLiteBackend
 
 
 @pytest.fixture
