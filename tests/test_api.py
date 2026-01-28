@@ -494,10 +494,10 @@ class TestWebhookEndpoints:
         new_secret = response.json()["secret"]
         assert new_secret != original_secret
 
-    def test_trigger_webhook_public(self, client, auth_headers):
-        """POST /hooks/{id} triggers webhook without auth."""
+    def test_trigger_webhook_requires_signature(self, client, auth_headers):
+        """POST /hooks/{id} requires X-Webhook-Signature header."""
         # Create webhook first (requires auth)
-        client.post(
+        create_resp = client.post(
             "/v1/webhooks",
             json={
                 "id": "trigger-test",
@@ -506,11 +506,28 @@ class TestWebhookEndpoints:
             },
             headers=auth_headers,
         )
+        secret = create_resp.json().get("secret", "")
 
-        # Trigger it (no auth required)
+        # Trigger without signature — should be rejected
         response = client.post(
             "/hooks/trigger-test",
             json={"data": {"id": 123}},
+        )
+        assert response.status_code == 401
+
+        # Trigger with valid HMAC signature
+        import hashlib
+        import hmac
+        import json
+
+        body = json.dumps({"data": {"id": 123}}).encode()
+        sig = "sha256=" + hmac.new(
+            secret.encode(), body, hashlib.sha256
+        ).hexdigest()
+        response = client.post(
+            "/hooks/trigger-test",
+            content=body,
+            headers={"X-Webhook-Signature": sig, "Content-Type": "application/json"},
         )
         assert response.status_code == 200
 

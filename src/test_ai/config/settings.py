@@ -112,8 +112,8 @@ class Settings(BaseSettings):
         description="API credentials as 'user1:hash1,user2:hash2'. Hash passwords with SHA-256.",
     )
     allow_demo_auth: bool = Field(
-        True,
-        description="Allow demo authentication (user: any, password: 'demo'). Disable in production.",
+        False,
+        description="Allow demo authentication (user: any, password: 'demo'). Set ALLOW_DEMO_AUTH=true to enable.",
     )
 
     # Shell execution limits

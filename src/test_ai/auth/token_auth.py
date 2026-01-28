@@ -1,5 +1,6 @@
 """Token-based authentication."""
 
+import secrets
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -14,8 +15,8 @@ class TokenAuth:
         self._tokens = {}
 
     def create_token(self, user_id: str) -> str:
-        """Create a new access token."""
-        token = f"token_{user_id}_{datetime.now().timestamp()}"
+        """Create a new cryptographically secure access token."""
+        token = secrets.token_urlsafe(32)
         expiry = datetime.now() + timedelta(
             minutes=self.settings.access_token_expire_minutes
         )
